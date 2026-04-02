@@ -13,7 +13,6 @@
 // limitations under the License.
 apply from: '../../constants.gradle'
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
 
 android {
     namespace 'androidx.media3.testapp.controller'
@@ -23,10 +22,6 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = '1.8'
     }
 
     defaultConfig {
@@ -56,6 +51,10 @@ android {
         // The test app isn't indexed, and doesn't have translations.
         disable 'GoogleAppIndexingWarning','MissingTranslation'
     }
+}
+
+kotlin {
+    jvmToolchain(8)
 }
 
 dependencies {

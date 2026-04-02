@@ -13,7 +13,6 @@
 // limitations under the License.
 apply plugin: 'com.android.library'
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_config.gradle"
-apply plugin: 'kotlin-android'
 apply plugin: 'com.google.protobuf'
 
 android {
@@ -24,10 +23,6 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = '1.8'
     }
 
     defaultConfig {
@@ -63,6 +58,10 @@ protobuf {
             }
         }
     }
+}
+
+kotlin {
+    jvmToolchain(8)
 }
 
 dependencies {

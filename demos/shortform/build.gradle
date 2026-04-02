@@ -13,7 +13,6 @@
 // limitations under the License.
 apply from: '../../constants.gradle'
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
 
 android {
     namespace 'androidx.media3.demo.shortform'
@@ -23,10 +22,6 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = '1.8'
     }
 
     defaultConfig {
@@ -70,6 +65,10 @@ android {
             }
         }
     }
+}
+
+kotlin {
+    jvmToolchain(8)
 }
 
 dependencies {
