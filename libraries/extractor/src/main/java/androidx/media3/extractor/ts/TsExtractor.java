@@ -181,6 +181,9 @@ public final class TsExtractor implements Extractor {
   private static final long DOVI_FORMAT_IDENTIFIER = 0x444f5649; // "DOVI"
   private static final long HDMV_FORMAT_IDENTIFIER = 0x48444D56; // "HDMV"
 
+  private static final int BUFFER_SIZE = TS_PACKET_SIZE * 50;
+  private static final int SNIFF_TS_PACKET_COUNT = 5;
+
   private final @Mode int mode;
   private final @Flags int extractorFlags;
   private final int timestampSearchBytes;

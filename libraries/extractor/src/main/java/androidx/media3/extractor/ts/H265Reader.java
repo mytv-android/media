@@ -244,7 +244,7 @@ public final class H265Reader implements ElementaryStreamReader {
       sps.endNalUnit(discardPadding);
       pps.endNalUnit(discardPadding);
       if (vps.isCompleted() && sps.isCompleted() && pps.isCompleted()) {
-        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType);
+        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType, dolbyVisionConfig);
         output.format(format);
         checkState(format.maxNumReorderSamples != Format.NO_VALUE);
         seiReader.setReorderingQueueSize(format.maxNumReorderSamples);
@@ -274,7 +274,8 @@ public final class H265Reader implements ElementaryStreamReader {
       NalUnitTargetBuffer vps,
       NalUnitTargetBuffer sps,
       NalUnitTargetBuffer pps,
-      String containerMimeType) {
+      String containerMimeType,
+      @Nullable DolbyVisionConfig dolbyVisionConfig) {
     // Build codec-specific data.
     byte[] csdData = new byte[vps.nalLength + sps.nalLength + pps.nalLength];
     System.arraycopy(vps.nalData, 0, csdData, 0, vps.nalLength);
