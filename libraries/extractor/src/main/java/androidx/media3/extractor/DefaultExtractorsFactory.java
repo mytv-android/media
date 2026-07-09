@@ -53,6 +53,7 @@ import androidx.media3.extractor.ts.Ac3Extractor;
 import androidx.media3.extractor.ts.Ac4Extractor;
 import androidx.media3.extractor.ts.AdtsExtractor;
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
+import androidx.media3.extractor.ts.M2tsExtractor;
 import androidx.media3.extractor.ts.PsExtractor;
 import androidx.media3.extractor.ts.TsExtractor;
 import androidx.media3.extractor.ts.TsPayloadReader;
@@ -101,9 +102,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>RM ({@link RmExtractor})
  *   <li>AVIF ({@link AvifExtractor})
  *   <li>ASF ({@link AsfExtractor})
+ *   <li>M2TS ({@link M2tsExtractor})
  *   <li>DSF ({@link DsfExtractor})
-   * <li>DFF ({@link DffExtractor})
-   * <li>DTS ({@link DtsExtractor})
+ *   <li>DFF ({@link DffExtractor})
+ *   <li>DTS ({@link DtsExtractor})
  *   <li>MIDI, if available, the MIDI extension's {@code androidx.media3.decoder.midi.MidiExtractor}
  *       is used.
  * </ul>
@@ -142,7 +144,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
         FileTypes.BMP,
         FileTypes.HEIF,
         FileTypes.AVIF,
-        FileTypes.ISO,
+        FileTypes.M2TS,
         FileTypes.DSF,
         FileTypes.DFF,
         FileTypes.DTS
@@ -611,6 +613,9 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
         break;
       case FileTypes.RM:
         extractors.add(new RmExtractor());
+        break;
+      case FileTypes.M2TS:
+        extractors.add(new M2tsExtractor(subtitleParserFactory));
         break;
       case FileTypes.DSF:
         extractors.add(new DsfExtractor());

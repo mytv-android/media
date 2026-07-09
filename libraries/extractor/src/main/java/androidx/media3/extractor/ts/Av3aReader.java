@@ -99,10 +99,6 @@ public final class Av3aReader implements ElementaryStreamReader {
     }
   }
 
-  @Override
-  public void packetFinished(boolean isEndOfInput) {
-  }
-
   private void findSync(ParsableByteArray source) {
     byte[] data = source.getData();
     int start = source.getPosition();

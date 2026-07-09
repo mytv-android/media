@@ -336,7 +336,8 @@ public final class RtspMediaSource extends BaseMediaSource {
 
           @Override
           public void onSeekingUnsupported() {
-            if (!timelineIsSeekable) {
+            if (timelineIsSeekable) {
+              timelineIsSeekable = false;
               notifySourceInfoRefreshed();
             }
           }

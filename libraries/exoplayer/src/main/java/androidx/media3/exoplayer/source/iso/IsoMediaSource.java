@@ -21,61 +21,98 @@ import android.net.Uri;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.MediaTitle;
 import androidx.media3.common.Timeline;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.TransferListener;
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider;
 import androidx.media3.exoplayer.source.CompositeMediaSource;
-import androidx.media3.exoplayer.source.ConcatenatingMediaSource2;
+import androidx.media3.exoplayer.source.MediaChapterProvider;
+import androidx.media3.exoplayer.source.MediaEditionSelector;
 import androidx.media3.exoplayer.source.MediaPeriod;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.upstream.Allocator;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.upstream.Loader;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
-public final class IsoMediaSource extends CompositeMediaSource<Void> {
+public final class IsoMediaSource extends CompositeMediaSource<Integer> implements MediaChapterProvider, MediaEditionSelector {
 
-  private static final Void CHILD_ID = null;
   private static final int MIN_RETRY_COUNT = 1;
+  private static final String EDITION_FRAGMENT_PREFIX = "edition=";
 
   private final DataSource.Factory dataSourceFactory;
   private final MediaItem mediaItem;
+  private final Map<Integer, MediaSource> editionSources;
+  private final Map<Integer, Timeline> editionTimelines;
+  private final Map<MediaPeriod, Integer> periodEditionIndices;
+  private final int requestedEditionIndex;
 
   @Nullable
-  private volatile List<MediaTitle> availableTitles;
+  private volatile ImmutableList<MediaChapter> availableChapters;
+  @Nullable
+  private volatile ImmutableList<MediaEdition> availableEditions;
+  private volatile int selectedEditionIndex;
 
   @Nullable
-  private ConcatenatingMediaSource2 innerSource;
+  private IsoParsedMedia parsedMedia;
   @Nullable
   private Loader loader;
+  @Nullable
+  private IOException sourceError;
 
   private IsoMediaSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory) {
     this.mediaItem = mediaItem;
     this.dataSourceFactory = dataSourceFactory;
+    this.requestedEditionIndex = mediaItem.localConfiguration != null ? parseEditionIndex(mediaItem.localConfiguration.uri) : C.INDEX_UNSET;
+    this.selectedEditionIndex = requestedEditionIndex;
+    this.editionSources = new HashMap<>();
+    this.editionTimelines = new HashMap<>();
+    this.periodEditionIndices = new IdentityHashMap<>();
   }
 
-  public static int parseTitleIndex(Uri uri) {
+  public static int parseEditionIndex(Uri uri) {
     String fragment = uri.getFragment();
-    if (fragment != null && fragment.startsWith("title=")) {
+    if (fragment != null && fragment.startsWith(EDITION_FRAGMENT_PREFIX)) {
       try {
-        return Integer.parseInt(fragment.substring("title=".length()));
+        return Integer.parseInt(fragment.substring(EDITION_FRAGMENT_PREFIX.length()));
       } catch (NumberFormatException ignored) {
       }
     }
-    return -1;
+    return C.INDEX_UNSET;
   }
 
-  public int getSelectedTitleIndex() {
-    return mediaItem.localConfiguration != null ? parseTitleIndex(mediaItem.localConfiguration.uri) : -1;
+  @Override
+  public int getSelectedMediaEditionIndex() {
+    return selectedEditionIndex;
   }
 
   @Nullable
-  public List<MediaTitle> getMediaTitles() {
-    return availableTitles;
+  @Override
+  public List<MediaChapter> getMediaChapters() {
+    return availableChapters;
+  }
+
+  @Nullable
+  @Override
+  public List<MediaEdition> getMediaEditions() {
+    return availableEditions;
+  }
+
+  @Override
+  public boolean selectEdition(MediaEdition edition) {
+    IsoParsedMedia parsed = parsedMedia;
+    if (parsed == null || !parsed.canSelectEdition(edition.index)) {
+      return false;
+    }
+    return selectEdition(edition.index, parsed);
   }
 
   @NonNull
@@ -95,6 +132,9 @@ public final class IsoMediaSource extends CompositeMediaSource<Void> {
 
   @Override
   public void maybeThrowSourceInfoRefreshError() throws IOException {
+    if (sourceError != null) {
+      throw sourceError;
+    }
     if (loader != null) {
       loader.maybeThrowError();
     }
@@ -102,19 +142,27 @@ public final class IsoMediaSource extends CompositeMediaSource<Void> {
   }
 
   @Override
-  protected void onChildSourceInfoRefreshed(Void childSourceId, @NonNull MediaSource mediaSource, @NonNull Timeline newTimeline) {
-    refreshSourceInfo(newTimeline);
+  protected void onChildSourceInfoRefreshed(Integer editionIndex, @NonNull MediaSource mediaSource, @NonNull Timeline newTimeline) {
+    editionTimelines.put(editionIndex, newTimeline);
+    if (editionIndex == selectedEditionIndex) {
+      refreshSourceInfo(newTimeline);
+    }
   }
 
   @NonNull
   @Override
   public MediaPeriod createPeriod(@NonNull MediaPeriodId id, @NonNull Allocator allocator, long startPositionUs) {
-    return checkNotNull(innerSource).createPeriod(id, allocator, startPositionUs);
+    MediaSource source = checkNotNull(editionSources.get(selectedEditionIndex));
+    MediaPeriod period = source.createPeriod(id, allocator, startPositionUs);
+    periodEditionIndices.put(period, selectedEditionIndex);
+    return period;
   }
 
   @Override
   public void releasePeriod(@NonNull MediaPeriod mediaPeriod) {
-    checkNotNull(innerSource).releasePeriod(mediaPeriod);
+    Integer editionIndex = periodEditionIndices.remove(mediaPeriod);
+    MediaSource source = editionIndex != null ? editionSources.get(editionIndex) : editionSources.get(selectedEditionIndex);
+    checkNotNull(source).releasePeriod(mediaPeriod);
   }
 
   @Override
@@ -124,7 +172,45 @@ public final class IsoMediaSource extends CompositeMediaSource<Void> {
       loader.release();
       loader = null;
     }
-    innerSource = null;
+    if (parsedMedia != null) {
+      parsedMedia.close();
+      parsedMedia = null;
+    }
+    availableChapters = null;
+    availableEditions = null;
+    sourceError = null;
+    editionSources.clear();
+    editionTimelines.clear();
+    periodEditionIndices.clear();
+  }
+
+  private boolean selectEdition(int editionIndex, IsoParsedMedia parsed) {
+    try {
+      prepareEditionSource(editionIndex, parsed);
+    } catch (IOException e) {
+      sourceError = e;
+      return false;
+    }
+    sourceError = null;
+    selectedEditionIndex = parsed.resolveEditionIndex(editionIndex);
+    availableEditions = parsed.getEditions(selectedEditionIndex);
+    availableChapters = parsed.getChapters(selectedEditionIndex);
+    Timeline timeline = editionTimelines.get(selectedEditionIndex);
+    if (timeline != null) {
+      refreshSourceInfo(timeline);
+    }
+    return true;
+  }
+
+  private void prepareEditionSource(int editionIndex, IsoParsedMedia parsed) throws IOException {
+    int resolvedEditionIndex = parsed.resolveEditionIndex(editionIndex);
+    MediaSource source = editionSources.get(resolvedEditionIndex);
+    if (source != null) {
+      return;
+    }
+    source = parsed.buildSource(resolvedEditionIndex);
+    editionSources.put(resolvedEditionIndex, source);
+    prepareChildSource(resolvedEditionIndex, source);
   }
 
   public static final class Factory implements MediaSource.Factory {
@@ -164,9 +250,20 @@ public final class IsoMediaSource extends CompositeMediaSource<Void> {
 
     @Override
     public void onLoadCompleted(IsoParseLoadable loadable, long elapsedRealtimeMs, long loadDurationMs) {
-      availableTitles = loadable.titles;
-      innerSource = (ConcatenatingMediaSource2) checkNotNull(loadable.result);
-      prepareChildSource(CHILD_ID, innerSource);
+      IsoParsedMedia parsed = loadable.result;
+      if (parsed == null) {
+        return;
+      }
+      parsedMedia = parsed;
+      selectedEditionIndex = parsed.resolveEditionIndex(requestedEditionIndex);
+      availableEditions = parsed.getEditions(selectedEditionIndex);
+      availableChapters = parsed.getChapters(selectedEditionIndex);
+      try {
+        prepareEditionSource(selectedEditionIndex, parsed);
+        sourceError = null;
+      } catch (IOException e) {
+        sourceError = e;
+      }
     }
 
     @Override

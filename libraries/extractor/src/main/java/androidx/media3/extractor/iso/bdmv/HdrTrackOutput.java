@@ -24,16 +24,15 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.extractor.ForwardingTrackOutput;
 import androidx.media3.extractor.TrackOutput;
+import androidx.media3.extractor.ts.DolbyVisionDescriptor;
 
 final class HdrTrackOutput extends ForwardingTrackOutput {
 
-  private final int dynamicRangeType;
-  private final BdmvTsPayloadReaderFactory payloadReaderFactory;
+  private final BdmvStreamContext streamContext;
 
-  HdrTrackOutput(TrackOutput trackOutput, int dynamicRangeType, BdmvTsPayloadReaderFactory payloadReaderFactory) {
+  HdrTrackOutput(TrackOutput trackOutput, BdmvStreamContext streamContext) {
     super(trackOutput);
-    this.dynamicRangeType = dynamicRangeType;
-    this.payloadReaderFactory = payloadReaderFactory;
+    this.streamContext = streamContext;
   }
 
   private static void applyHdrColorFallback(Format.Builder builder, @Nullable ColorInfo colorInfo, int dynamicRangeType) {
@@ -52,7 +51,7 @@ final class HdrTrackOutput extends ForwardingTrackOutput {
     builder.setColorInfo(colorBuilder.build());
   }
 
-  private static int dvLevelFromCodecs(@Nullable String codecs) {
+  static int dvLevelFromCodecs(@Nullable String codecs) {
     if (codecs == null) {
       return 9;
     }
@@ -127,8 +126,9 @@ final class HdrTrackOutput extends ForwardingTrackOutput {
 
   private Format upgradeFormat(Format format) {
     Format.Builder builder = format.buildUpon();
-    int dvProfile = payloadReaderFactory.getDvProfile();
-    boolean shouldApplyDv = dvProfile > 0 && dynamicRangeType == BdmvConstants.DYNAMIC_RANGE_DOLBY_VISION;
+    int dynamicRangeType = streamContext.dynamicRangeType;
+    int dvProfile = streamContext.dvProfile;
+    boolean shouldApplyDv = streamContext.handlesDolbyVisionFormat();
     if (shouldApplyDv) {
       applyDolbyVision(builder, format, dvProfile);
     }
@@ -137,15 +137,27 @@ final class HdrTrackOutput extends ForwardingTrackOutput {
   }
 
   private void applyDolbyVision(Format.Builder builder, Format format, int dvProfile) {
-    int explicitLevel = payloadReaderFactory.getDvLevel();
+    int explicitLevel = streamContext.dvLevel;
     int dvLevel = explicitLevel > 0 ? explicitLevel : dvLevelFromCodecs(format.codecs);
     builder.setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION);
     builder.setCodecs(CodecSpecificDataUtil.buildDolbyVisionCodecString(dvProfile, dvLevel));
-    byte[] dvCsd = CodecSpecificDataUtil.buildDolbyVisionInitializationData(dvProfile, dvLevel);
-    int dvBlCompatId = payloadReaderFactory.getDvBlCompatId();
-    if (dvBlCompatId >= 0) {
-      dvCsd[4] = (byte) ((dvBlCompatId << 4) | (payloadReaderFactory.getDvMdCompression() << 2));
-    }
+    byte[] dvCsd =
+        streamContext.hasDolbyVisionDescriptor
+            ? DolbyVisionDescriptor.buildInitializationData(
+                streamContext.dvVersionMajor,
+                streamContext.dvVersionMinor,
+                dvProfile,
+                dvLevel,
+                streamContext.rpuPresentFlag,
+                streamContext.elPresentFlag,
+                streamContext.blPresentFlag,
+                streamContext.blSignalCompatibilityId,
+                streamContext.mdCompression)
+            : CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+                dvProfile,
+                dvLevel,
+                streamContext.blSignalCompatibilityId,
+                streamContext.mdCompression);
     builder.setInitializationData(CodecSpecificDataUtil.setDolbyVisionCsd(format.initializationData, dvCsd));
   }
 }

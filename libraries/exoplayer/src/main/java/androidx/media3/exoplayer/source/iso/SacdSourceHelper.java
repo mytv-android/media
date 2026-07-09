@@ -18,23 +18,23 @@ package androidx.media3.exoplayer.source.iso;
 import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.media3.common.CacheDataReader;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.MediaTitle;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.IsoDataSource;
 import androidx.media3.exoplayer.source.ConcatenatingMediaSource2;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
-import androidx.media3.extractor.dsd.DsdExtractor;
 import androidx.media3.extractor.Extractor;
+import androidx.media3.extractor.dsd.DsdExtractor;
 import androidx.media3.extractor.iso.sacd.SacdArea;
 import androidx.media3.extractor.iso.sacd.SacdStructure;
 import androidx.media3.extractor.iso.sacd.SacdTocParser;
 import androidx.media3.extractor.iso.sacd.SacdTrack;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
 
 final class SacdSourceHelper {
 
@@ -42,8 +42,8 @@ final class SacdSourceHelper {
     return SacdTocParser.parse(isoReader);
   }
 
-  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, int titleIndex, SacdStructure sacd) throws IOException {
-    SacdArea area = selectArea(sacd, titleIndex);
+  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, int editionIndex, SacdStructure sacd) throws IOException {
+    SacdArea area = selectArea(sacd, editionIndex);
     ConcatenatingMediaSource2.Builder builder = new ConcatenatingMediaSource2.Builder();
     builder.setMediaItem(mediaItem);
     boolean anyAdded = false;
@@ -55,7 +55,7 @@ final class SacdSourceHelper {
       long byteOffset = area.trackStartByteOffset(track);
       long byteLength = area.trackByteLength(track);
       final int channelCount = area.channelCount;
-      final String mimeType = (area.audioEncoding == SacdArea.ENCODING_DST) ? MimeTypes.AUDIO_DST : MimeTypes.AUDIO_DSD;
+      final String mimeType = area.audioEncoding == SacdArea.ENCODING_DST ? MimeTypes.AUDIO_DST : MimeTypes.AUDIO_DSD;
       final long trackLengthLsn = track.lengthLsn;
       IsoDataSource.Factory clipFactory = new IsoDataSource.Factory(dataSourceFactory, byteOffset, byteLength, false, false);
       ProgressiveMediaSource.Factory pmFactory = new ProgressiveMediaSource.Factory(clipFactory, () -> new Extractor[]{new DsdExtractor(channelCount, durationUs, mimeType, trackLengthLsn)});
@@ -69,38 +69,38 @@ final class SacdSourceHelper {
     return builder.build();
   }
 
-  static List<MediaTitle> buildTitles(SacdStructure sacd) {
-    List<MediaTitle> titles = new ArrayList<>(2);
+  static ImmutableList<MediaEdition> buildEditions(SacdStructure sacd) {
+    ArrayList<MediaEdition> editions = new ArrayList<>(2);
     if (sacd.stereoArea != null) {
       long durationUs = totalDuration(sacd.stereoArea);
-      titles.add(new MediaTitle(0, durationUs, sacd.stereoArea.tracks.size(), sacd.multiArea == null, MediaTitle.TYPE_SACD, "Stereo", sacd.multiArea == null));
+      editions.add(MediaEdition.edition(0, durationUs, "Stereo", sacd.multiArea == null));
     }
     if (sacd.multiArea != null) {
       long durationUs = totalDuration(sacd.multiArea);
-      titles.add(new MediaTitle(1, durationUs, sacd.multiArea.tracks.size(), true, MediaTitle.TYPE_SACD, "Multi-channel", true));
+      editions.add(MediaEdition.edition(1, durationUs, "Multi-channel", true));
     }
-    return titles;
+    return ImmutableList.copyOf(editions);
   }
 
-  private static SacdArea selectArea(SacdStructure sacd, int titleIndex) throws IOException {
+  private static SacdArea selectArea(SacdStructure sacd, int editionIndex) throws IOException {
     @Nullable SacdArea area;
-    if (titleIndex == 0) {
+    if (editionIndex == 0) {
       area = sacd.stereoArea != null ? sacd.stereoArea : sacd.multiArea;
-    } else if (titleIndex == 1) {
+    } else if (editionIndex == 1) {
       area = sacd.multiArea != null ? sacd.multiArea : sacd.stereoArea;
     } else {
       area = sacd.getPreferredArea();
     }
     if (area == null) {
-      throw new IOException("SACD: no audio area found (titleIndex=" + titleIndex + ")");
+      throw new IOException("SACD: no audio area found (editionIndex=" + editionIndex + ")");
     }
     return area;
   }
 
   private static long totalDuration(SacdArea area) {
     long total = 0L;
-    for (SacdTrack t : area.tracks) {
-      total += t.getDurationUs();
+    for (SacdTrack track : area.tracks) {
+      total += track.getDurationUs();
     }
     return total;
   }

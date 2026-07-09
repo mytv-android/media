@@ -54,26 +54,29 @@ public final class PgsReader implements ElementaryStreamReader {
   private int firstByteOfSectionSize;
   private int sampleBytesWritten;
   private long sampleTimeUs;
-  private boolean packageGoodToGo;
+  private long packetTimeUs;
+  private boolean writingSample;
 
   public PgsReader(@Nullable String language, String containerMimeType) {
-    stateOfReading = STATE_EXPECT_NEXT;
     sectionType = -1;
+    sampleBytesWritten = 0;
     sectionBytesToRead = 0;
+    sampleTimeUs = C.TIME_UNSET;
+    packetTimeUs = C.TIME_UNSET;
+    stateOfReading = STATE_EXPECT_NEXT;
     this.language = language;
     this.containerMimeType = containerMimeType;
-    sampleBytesWritten = 0;
-    sampleTimeUs = C.TIME_UNSET;
   }
 
   @Override
   public void seek() {
-    packageGoodToGo = false;
-    sampleTimeUs = C.TIME_UNSET;
-    stateOfReading = STATE_EXPECT_NEXT;
     sectionType = -1;
-    sectionBytesToRead = 0;
+    writingSample = false;
     sampleBytesWritten = 0;
+    sectionBytesToRead = 0;
+    sampleTimeUs = C.TIME_UNSET;
+    packetTimeUs = C.TIME_UNSET;
+    stateOfReading = STATE_EXPECT_NEXT;
   }
 
   @Override
@@ -95,43 +98,55 @@ public final class PgsReader implements ElementaryStreamReader {
     if ((flags & FLAG_DATA_ALIGNMENT_INDICATOR) == 0) {
       return;
     }
-    packageGoodToGo = true;
+    writingSample = true;
+    packetTimeUs = pesTimeUs;
     if (sampleTimeUs == C.TIME_UNSET) {
       sampleTimeUs = pesTimeUs;
     }
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
-    if (!packageGoodToGo) {
-      return;
-    }
-    if (sampleTimeUs == C.TIME_UNSET) {
-      packageGoodToGo = false;
-      return;
-    }
-    if (stateOfReading == STATE_EXPECT_NEXT && sectionType == SECTION_TYPE_END) {
-      output.sampleMetadata(sampleTimeUs, C.BUFFER_FLAG_KEY_FRAME, sampleBytesWritten, 0, null);
-      sampleBytesWritten = 0;
-      sampleTimeUs = C.TIME_UNSET;
-    }
-    packageGoodToGo = false;
-  }
-
-  @Override
   public void consume(ParsableByteArray data) {
-    if (!packageGoodToGo) {
+    if (!writingSample) {
       return;
     }
-    int dataPosition = data.getPosition();
-    goThrough(data);
-    data.setPosition(dataPosition);
-    int bytesAvailable = data.bytesLeft();
-    output.sampleData(data, bytesAvailable);
-    sampleBytesWritten += bytesAvailable;
+    while (data.bytesLeft() > 0) {
+      int chunkStart = data.getPosition();
+      boolean sampleFinished = readUntilEndOfDisplaySet(data);
+      int chunkEnd = data.getPosition();
+      data.setPosition(chunkStart);
+      appendSampleData(data, chunkEnd - chunkStart);
+      if (sampleFinished) {
+        if (sampleTimeUs != C.TIME_UNSET) {
+          commitSample();
+        } else {
+          resetSampleState();
+        }
+      }
+      data.setPosition(chunkEnd);
+    }
   }
 
-  private void goThrough(ParsableByteArray array) {
+  private void appendSampleData(ParsableByteArray data, int bytesToWrite) {
+    if (sampleTimeUs == C.TIME_UNSET) {
+      sampleTimeUs = packetTimeUs;
+    }
+    output.sampleData(data, bytesToWrite);
+    sampleBytesWritten += bytesToWrite;
+  }
+
+  private void commitSample() {
+    output.sampleMetadata(sampleTimeUs, C.BUFFER_FLAG_KEY_FRAME, sampleBytesWritten, 0, null);
+    resetSampleState();
+  }
+
+  private void resetSampleState() {
+    writingSample = false;
+    sampleBytesWritten = 0;
+    sampleTimeUs = C.TIME_UNSET;
+  }
+
+  private boolean readUntilEndOfDisplaySet(ParsableByteArray array) {
     byte[] buffer = array.getData();
     int position = array.getPosition();
     int limit = array.limit();
@@ -139,7 +154,7 @@ public final class PgsReader implements ElementaryStreamReader {
       int b = buffer[position++] & 0xff;
       switch (stateOfReading) {
         case STATE_EXPECT_NEXT:
-          if (b == SECTION_TYPE_IDENTIFIER || b == SECTION_TYPE_WINDOW_DEF || b == SECTION_TYPE_PALETTE || b == SECTION_TYPE_BITMAP_PICTURE || b == SECTION_TYPE_END) {
+          if (isSectionType(b)) {
             sectionType = b;
             stateOfReading = STATE_SECTION_TYPE_READ;
           }
@@ -151,6 +166,10 @@ public final class PgsReader implements ElementaryStreamReader {
         case STATE_SECTION_SIZE_FIRST_BYTE_READ:
           sectionBytesToRead = firstByteOfSectionSize << 8 | b;
           stateOfReading = sectionBytesToRead == 0 ? STATE_EXPECT_NEXT : STATE_SECTION_BYTES_COUNTDOWN;
+          if (stateOfReading == STATE_EXPECT_NEXT && sectionType == SECTION_TYPE_END) {
+            array.setPosition(position);
+            return true;
+          }
           break;
         case STATE_SECTION_BYTES_COUNTDOWN:
           sectionBytesToRead--;
@@ -159,10 +178,23 @@ public final class PgsReader implements ElementaryStreamReader {
           sectionBytesToRead -= bytesToRead;
           if (sectionBytesToRead == 0) {
             stateOfReading = STATE_EXPECT_NEXT;
+            if (sectionType == SECTION_TYPE_END) {
+              array.setPosition(position);
+              return true;
+            }
           }
           break;
       }
     }
     array.setPosition(position);
+    return false;
+  }
+
+  private static boolean isSectionType(int value) {
+    return value == SECTION_TYPE_IDENTIFIER
+        || value == SECTION_TYPE_WINDOW_DEF
+        || value == SECTION_TYPE_PALETTE
+        || value == SECTION_TYPE_BITMAP_PICTURE
+        || value == SECTION_TYPE_END;
   }
 }

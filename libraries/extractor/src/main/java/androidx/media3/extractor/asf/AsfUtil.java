@@ -37,6 +37,8 @@ final class AsfUtil {
   static final int FOURCC_WMV3 = makeFourcc('W', 'M', 'V', '3');
   static final int FOURCC_WMVA = makeFourcc('W', 'M', 'V', 'A');
   static final int FOURCC_WVC1 = makeFourcc('W', 'V', 'C', '1');
+  static final int FOURCC_MP43 = makeFourcc('M', 'P', '4', '3');
+  static final int FOURCC_MP4S = makeFourcc('M', 'P', '4', 'S');
 
   static final int WAVE_FORMAT_WMA1 = 0x0160;
   static final int WAVE_FORMAT_WMA2 = 0x0161;
@@ -66,7 +68,9 @@ final class AsfUtil {
         || fourcc == FOURCC_WMV2
         || fourcc == FOURCC_WMV3
         || fourcc == FOURCC_WMVA
-        || fourcc == FOURCC_WVC1;
+        || fourcc == FOURCC_WVC1
+        || fourcc == FOURCC_MP43
+        || fourcc == FOURCC_MP4S;
   }
 
   static boolean isSupportedWmaTag(int tag) {
@@ -86,6 +90,12 @@ final class AsfUtil {
     }
     if (fourcc == FOURCC_WVC1 || fourcc == FOURCC_WMVA) {
       return MimeTypes.VIDEO_VC1;
+    }
+    if (fourcc == FOURCC_MP43) {
+      return MimeTypes.VIDEO_MP43;
+    }
+    if (fourcc == FOURCC_MP4S) {
+      return MimeTypes.VIDEO_MP4V;
     }
     return MimeTypes.VIDEO_WMV;
   }
@@ -132,6 +142,12 @@ final class AsfUtil {
     }
     if (fourcc == FOURCC_WVC1 || fourcc == FOURCC_WMVA) {
       return "vc1";
+    }
+    if (fourcc == FOURCC_MP43) {
+      return "msmpeg4v3";
+    }
+    if (fourcc == FOURCC_MP4S) {
+      return "mp4v.20";
     }
     return "wmv3";
   }

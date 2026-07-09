@@ -37,6 +37,7 @@ android {
 
 dependencies {
     api project(modulePrefix + 'lib-common')
+    api project(modulePrefix + 'lib-ui-danmaku')
     implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
     implementation 'androidx.recyclerview:recyclerview:' + androidxRecyclerViewVersion
     compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion

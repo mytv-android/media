@@ -40,6 +40,8 @@ final class AsfPacketReader {
   private final SparseArray<List<PayloadExtension>> payloadExtensions;
   private final SparseArray<TrackOutput> trackOutputs;
   private final int packetSize;
+  private final long packetCount;
+  private final long firstPacketPosition;
   private final long prerollMs;
 
   private final int[] lastSarNum = new int[MAX_STREAM_NUMBER];
@@ -57,12 +59,14 @@ final class AsfPacketReader {
   private boolean scratchTsIsPts;
   private int scratchRemaining;
 
-  AsfPacketReader(SparseArray<AudioStreamInfo> audioStreams, SparseArray<VideoStreamInfo> videoStreams, SparseArray<List<PayloadExtension>> payloadExtensions, SparseArray<TrackOutput> trackOutputs, int packetSize, long prerollMs) {
+  AsfPacketReader(SparseArray<AudioStreamInfo> audioStreams, SparseArray<VideoStreamInfo> videoStreams, SparseArray<List<PayloadExtension>> payloadExtensions, SparseArray<TrackOutput> trackOutputs, int packetSize, long packetCount, long firstPacketPosition, long prerollMs) {
     this.audioStreams = audioStreams;
     this.videoStreams = videoStreams;
     this.payloadExtensions = payloadExtensions;
     this.trackOutputs = trackOutputs;
     this.packetSize = packetSize;
+    this.packetCount = packetCount;
+    this.firstPacketPosition = firstPacketPosition;
     this.prerollMs = prerollMs;
     this.packetBuffer = new byte[packetSize];
   }
@@ -71,6 +75,9 @@ final class AsfPacketReader {
    * Reads one packet from {@code input} and dispatches samples. Returns {@code false} on EOS.
    */
   boolean read(ExtractorInput input) throws IOException {
+    if (hasReadAllPackets(input.getPosition())) {
+      return false;
+    }
     try {
       input.readFully(packetBuffer, 0, packetSize);
     } catch (EOFException e) {
@@ -78,6 +85,13 @@ final class AsfPacketReader {
     }
     parsePacket(new ParsableByteArray(packetBuffer));
     return true;
+  }
+
+  private boolean hasReadAllPackets(long inputPosition) {
+    if (packetCount <= 0 || firstPacketPosition < 0 || inputPosition < firstPacketPosition) {
+      return false;
+    }
+    return (inputPosition - firstPacketPosition) / packetSize >= packetCount;
   }
 
   /**
@@ -159,22 +173,31 @@ final class AsfPacketReader {
     int repLenType = segFlags & 0x03;
     int offsetLenType = (segFlags >> 2) & 0x03;
     int objNumLenType = (segFlags >> 4) & 0x03;
-    AsfLittleEndian.readVarLen(buf, packetLenType);
+    long packetLengthLong = AsfLittleEndian.readVarLen(buf, packetLenType);
+    int packetLength = packetLenType == 0 ? packetSize : (int) packetLengthLong;
     AsfLittleEndian.readVarLen(buf, seqType);
     int paddingLen = (int) AsfLittleEndian.readVarLen(buf, paddingType);
+    if (packetLength <= 0 || packetLength > packetSize || paddingLen >= packetLength) {
+      return;
+    }
     long sendTimeMs = buf.readLittleEndianUnsignedInt();
     buf.skipBytes(2);
+    int dataEnd = packetLength - paddingLen;
+    if (dataEnd < buf.getPosition() || dataEnd > buf.limit()) {
+      return;
+    }
     if (multiPayload) {
-      decodeMultiPayload(buf, sendTimeMs, paddingLen, repLenType, offsetLenType, objNumLenType);
+      decodeMultiPayload(buf, sendTimeMs, dataEnd, repLenType, offsetLenType, objNumLenType);
     } else {
-      decodeSinglePayload(buf, sendTimeMs, paddingLen, repLenType, offsetLenType, objNumLenType);
+      decodeSinglePayload(buf, sendTimeMs, dataEnd, repLenType, offsetLenType, objNumLenType);
     }
   }
 
-  private void decodeMultiPayload(ParsableByteArray buf, long sendTimeMs, int paddingLen, int repLenType, int offsetLenType, int objNumLenType) {
+  private void decodeMultiPayload(ParsableByteArray buf, long sendTimeMs, int dataEnd, int repLenType, int offsetLenType, int objNumLenType) {
+    if (buf.getPosition() >= dataEnd) {
+      return;
+    }
     int payloadLenType = (buf.readUnsignedByte() >> 6) & 0x03;
-    int dataEnd = packetSize - paddingLen;
-    long compressedTimeStart = ReplicatedData.ABSENT;
     while (buf.getPosition() < dataEnd && buf.bytesLeft() >= 4) {
       int raw = buf.readUnsignedByte();
       boolean keyFrame = (raw & 0x80) != 0;
@@ -183,38 +206,47 @@ final class AsfPacketReader {
       int objectOffset = (int) AsfLittleEndian.readVarLen(buf, offsetLenType);
       ReplicatedData rep = readReplicatedData(buf, repLenType, streamNum);
       int payloadLen = (int) AsfLittleEndian.readVarLen(buf, payloadLenType);
-      if (payloadLen <= 0 || payloadLen > buf.bytesLeft()) {
+      int payloadBytesLeft = dataEnd - buf.getPosition();
+      if (payloadLen <= 0 || payloadLen > payloadBytesLeft) {
         break;
       }
-      long timeUs = computeTimeUs(rep, sendTimeMs, objectOffset, compressedTimeStart);
       if (rep.timeDelta != ReplicatedData.ABSENT) {
-        compressedTimeStart = (compressedTimeStart == ReplicatedData.ABSENT) ? objectOffset + rep.timeDelta : compressedTimeStart + rep.timeDelta;
+        decodeCompressedPayload(buf, streamNum, payloadLen, objectOffset, rep.timeDelta, keyFrame);
+        continue;
       }
+      long timeUs = toTimeUs(rep, sendTimeMs);
       dispatchPayload(buf, streamNum, payloadLen, rep.objSize, timeUs, keyFrame, objectOffset);
     }
   }
 
-  private void decodeSinglePayload(ParsableByteArray buf, long sendTimeMs, int paddingLen, int repLenType, int offsetLenType, int objNumLenType) {
+  private void decodeCompressedPayload(ParsableByteArray buf, int streamNum, int payloadLen, int timeStartMs, long timeDeltaMs, boolean keyFrame) {
+    int endPosition = buf.getPosition() + payloadLen;
+    long sampleTimeMs = timeStartMs;
+    while (buf.getPosition() < endPosition) {
+      int sampleSize = buf.readUnsignedByte();
+      if (sampleSize <= 0 || sampleSize > endPosition - buf.getPosition()) {
+        buf.setPosition(endPosition);
+        return;
+      }
+      long timeUs = Math.max(0, (sampleTimeMs - prerollMs) * 1_000L);
+      dispatchPayload(buf, streamNum, sampleSize, sampleSize, timeUs, keyFrame, 0);
+      sampleTimeMs += timeDeltaMs;
+    }
+  }
+
+  private void decodeSinglePayload(ParsableByteArray buf, long sendTimeMs, int dataEnd, int repLenType, int offsetLenType, int objNumLenType) {
     int raw = buf.readUnsignedByte();
     boolean keyFrame = (raw & 0x80) != 0;
     int streamNum = raw & 0x7F;
     AsfLittleEndian.readVarLen(buf, objNumLenType);
     int objectOffset = (int) AsfLittleEndian.readVarLen(buf, offsetLenType);
     ReplicatedData rep = readReplicatedData(buf, repLenType, streamNum);
-    int payloadLen = packetSize - buf.getPosition() - paddingLen;
+    int payloadLen = dataEnd - buf.getPosition();
     if (payloadLen <= 0) {
       return;
     }
     long timeUs = toTimeUs(rep, sendTimeMs);
     dispatchPayload(buf, streamNum, payloadLen, rep.objSize, timeUs, keyFrame, objectOffset);
-  }
-
-  private long computeTimeUs(ReplicatedData rep, long sendTimeMs, int objectOffset, long compressedTimeStart) {
-    if (rep.timeDelta != ReplicatedData.ABSENT) {
-      long start = (compressedTimeStart == ReplicatedData.ABSENT) ? objectOffset : compressedTimeStart;
-      return Math.max(0, (start - prerollMs) * 1_000L);
-    }
-    return toTimeUs(rep, sendTimeMs);
   }
 
   private ReplicatedData readReplicatedData(ParsableByteArray buf, int repLenType, int streamNum) {

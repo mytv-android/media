@@ -56,14 +56,10 @@ final class BdmvSourceHelper {
   private static final int MAX_ENTRY_READ_BYTES = 8 * 1024 * 1024;
   private static final long BATCH_PREFETCH_MAX_SPAN = 4L * 1024 * 1024;
 
-  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, UdfFileSystem udf, CacheDataReader isoReader, int titleIndex) throws IOException {
-    return buildSourceFromStructure(mediaItem, dataSourceFactory, isoUri, udf, isoReader, titleIndex, parseBdmv(isoReader, udf));
-  }
-
-  static MediaSource buildSourceFromStructure(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, UdfFileSystem udf, CacheDataReader isoReader, int titleIndex, BdmvStructure bdmv) throws IOException {
+  static MediaSource buildSourceFromStructure(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, UdfFileSystem udf, CacheDataReader isoReader, int editionIndex, BdmvStructure bdmv) throws IOException {
     Playlist main;
-    if (titleIndex >= 0 && titleIndex < bdmv.allPlaylists.size()) {
-      main = bdmv.allPlaylists.get(titleIndex);
+    if (editionIndex >= 0 && editionIndex < bdmv.allPlaylists.size()) {
+      main = bdmv.allPlaylists.get(editionIndex);
     } else {
       main = bdmv.mainPlaylist;
     }

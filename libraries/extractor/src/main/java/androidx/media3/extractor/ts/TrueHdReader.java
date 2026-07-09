@@ -173,8 +173,8 @@ public final class TrueHdReader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
-    if (isEndOfInput && output != null) {
+  public void endOfInputReached() {
+    if (output != null) {
       rechunker.outputPendingSampleMetadata(output, /* cryptoData= */ null);
     }
   }

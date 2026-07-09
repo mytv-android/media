@@ -65,6 +65,7 @@ public final class FileTypes {
    *   <li>{@link #ASF}
    *   <li>{@link #RM}
    *   <li>{@link #ISO}
+   *   <li>{@link #M2TS}
    *   <li>{@link #DSF}
    *   <li>{@link #DFF}
    *   <li>{@link #DTS}
@@ -75,7 +76,7 @@ public final class FileTypes {
   @Target(TYPE_USE)
   @IntDef({
     UNKNOWN, AC3, AC4, ADTS, AMR, FLAC, FLV, MATROSKA, MP3, MP4, OGG, PS, TS, WAV, WEBVTT, JPEG,
-    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, ISO, DSF, DFF, DTS
+    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, ISO, M2TS, DSF, DFF, DTS
   })
   public @interface Type {}
 
@@ -157,14 +158,17 @@ public final class FileTypes {
   /** File type for ISO disc image formats (DVD and Blu-ray). */
   public static final int ISO = 24;
 
+  /** File type for the M2TS (Blu-ray MPEG-2 Transport Stream) format. */
+  public static final int M2TS = 25;
+
   /** File type for the DSF (DSD Stream File) format. */
-  public static final int DSF = 25;
+  public static final int DSF = 26;
 
   /** File type for the DFF (DSDIFF) format. */
-  public static final int DFF = 26;
+  public static final int DFF = 27;
 
   /** File type for the raw DTS audio format. */
-  public static final int DTS = 27;
+  public static final int DTS = 28;
 
   @VisibleForTesting /* package */ static final String HEADER_CONTENT_TYPE = "Content-Type";
 
@@ -214,6 +218,9 @@ public final class FileTypes {
   private static final String EXTENSION_RM = ".rm";
   private static final String EXTENSION_RMVB = ".rmvb";
   private static final String EXTENSION_ISO = ".iso";
+  private static final String EXTENSION_M2TS = ".m2ts";
+  private static final String EXTENSION_MTS = ".mts";
+  private static final String EXTENSION_M2T = ".m2t";
   private static final String EXTENSION_DSF = ".dsf";
   private static final String EXTENSION_DFF = ".dff";
   private static final String EXTENSION_DTS = ".dts";
@@ -307,10 +314,11 @@ public final class FileTypes {
       case MimeTypes.AUDIO_DST:
         return FileTypes.DFF;
       case MimeTypes.AUDIO_DTS:
-      case MimeTypes.AUDIO_DTS_X:
       case MimeTypes.AUDIO_DTS_HD:
-      case MimeTypes.AUDIO_DTS_MA:
+      case MimeTypes.AUDIO_DTS_HD_MA:
+      case MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS:
       case MimeTypes.AUDIO_DTS_EXPRESS:
+      case MimeTypes.AUDIO_DTS_UHD_P2:
         return FileTypes.DTS;
       default:
         return FileTypes.UNKNOWN;
@@ -369,6 +377,10 @@ public final class FileTypes {
         || filename.endsWith(EXTENSION_MPG)
         || filename.endsWith(EXTENSION_M2P)) {
       return FileTypes.PS;
+    } else if (filename.endsWith(EXTENSION_M2TS)
+        || filename.endsWith(EXTENSION_MTS)
+        || filename.endsWith(EXTENSION_M2T)) {
+      return FileTypes.M2TS;
     } else if (filename.endsWith(EXTENSION_TS)
         || filename.startsWith(
             EXTENSION_PREFIX_TS,

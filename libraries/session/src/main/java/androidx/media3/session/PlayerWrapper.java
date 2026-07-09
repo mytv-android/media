@@ -30,6 +30,8 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.ForwardingPlayer;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -812,6 +814,18 @@ import java.util.List;
     return super.getCurrentTracks();
   }
 
+  @Override
+  public List<MediaChapter> getCurrentMediaChapters() {
+    verifyApplicationThread();
+    return super.getCurrentMediaChapters();
+  }
+
+  @Override
+  public List<MediaEdition> getCurrentMediaEditions() {
+    verifyApplicationThread();
+    return super.getCurrentMediaEditions();
+  }
+
   public Tracks getCurrentTracksWithCommandCheck() {
     return isCommandAvailable(COMMAND_GET_TRACKS) ? getCurrentTracks() : Tracks.EMPTY;
   }
@@ -954,6 +968,8 @@ import java.util.List;
         getSeekForwardIncrement(),
         getMaxSeekToPreviousPosition(),
         getCurrentTracksWithCommandCheck(),
+        getCurrentMediaChapters(),
+        getCurrentMediaEditions(),
         getTrackSelectionParameters());
   }
 

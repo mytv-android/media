@@ -216,7 +216,7 @@ public final class Vc1Reader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
+  public void packetFinished() {
     if (output == null || !hasSample || sampleBytesWritten == 0) {
       return;
     }

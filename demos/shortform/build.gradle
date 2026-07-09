@@ -13,6 +13,7 @@
 // limitations under the License.
 apply from: '../../constants.gradle'
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
 
 android {
     namespace 'androidx.media3.demo.shortform'

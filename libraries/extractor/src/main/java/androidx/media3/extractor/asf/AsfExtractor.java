@@ -98,7 +98,7 @@ public final class AsfExtractor implements Extractor {
     }
     output.seekMap(buildSeekMap(header));
     output.endTracks();
-    return new AsfPacketReader(header.audioStreams(), header.videoStreams(), header.payloadExtensions(), trackOutputs, header.packetSize(), header.prerollMs());
+    return new AsfPacketReader(header.audioStreams(), header.videoStreams(), header.payloadExtensions(), trackOutputs, header.packetSize(), header.packetCount(), header.firstPacketPosition(), header.prerollMs());
   }
 
   private static TrackOutput registerAudioTrack(ExtractorOutput output, AudioStreamInfo audioInfo) {

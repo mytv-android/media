@@ -44,6 +44,11 @@ public final class FilteringHlsPlaylistParserFactory implements HlsPlaylistParse
   }
 
   @Override
+  public void setAdblock(boolean adblock) {
+    hlsPlaylistParserFactory.setAdblock(adblock);
+  }
+
+  @Override
   public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser() {
     return new FilteringManifestParser<>(
         hlsPlaylistParserFactory.createPlaylistParser(), streamKeys);

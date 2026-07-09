@@ -45,24 +45,15 @@ final class DvdSourceHelper {
     return new DvdIfoParser(isoReader, udf).parse();
   }
 
-  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, CacheDataReader isoReader, UdfFileSystem udf, int titleIndex) throws IOException {
-    return buildSource(mediaItem, dataSourceFactory, isoUri, isoReader, udf, titleIndex, parseStructure(isoReader, udf));
-  }
-
-  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, CacheDataReader isoReader, UdfFileSystem udf, int titleIndex, DvdStructure dvd) throws IOException {
+  static MediaSource buildSource(MediaItem mediaItem, DataSource.Factory dataSourceFactory, Uri isoUri, int editionIndex, DvdStructure dvd) throws IOException {
     DvdTitle main;
-    if (titleIndex >= 0 && titleIndex < dvd.titles.size()) {
-      main = dvd.titles.get(titleIndex);
+    if (editionIndex >= 0 && editionIndex < dvd.titles.size()) {
+      main = dvd.titles.get(editionIndex);
     } else {
       main = dvd.mainTitle;
     }
     byte[] vobsubIdxBytes = main.vobsubIdx != null ? Util.getUtf8Bytes(main.vobsubIdx) : null;
-    DvdPrivateStreamReader privateStreamReader = new DvdPrivateStreamReader(
-        main.audioLanguages,
-        main.subpLanguages,
-        vobsubIdxBytes,
-        main.activeAudioStreams,
-        main.activeSubpStreams);
+    DvdPrivateStreamReader privateStreamReader = new DvdPrivateStreamReader(main.audioLanguages, main.subpLanguages, vobsubIdxBytes, main.activeAudioStreams, main.activeSubpStreams);
     List<IndexSeekMap> cellSeekMaps = buildCellSeekMaps(main);
     ConcatenatingMediaSource2.Builder builder = new ConcatenatingMediaSource2.Builder();
     builder.setMediaItem(mediaItem);

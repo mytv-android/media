@@ -67,6 +67,9 @@ public class SmbDataSource extends BaseDataSource {
     uri = dataSpec.uri;
     transferInitializing(dataSpec);
     String host = uri.getHost();
+    if (host == null) {
+      throw new DataSourceException(PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+    }
     int port = uri.getPort() != -1 ? uri.getPort() : 445;
     String path = uri.getPath();
     if (path != null && path.startsWith("/")) {
@@ -78,8 +81,7 @@ public class SmbDataSource extends BaseDataSource {
     String[] parts = path.split("/", 2);
     String shareName = parts[0];
     String filePath = parts[1];
-    boolean sameFile = host != null && host.equals(cachedHost) && port == cachedPort && shareName.equals(cachedShare)
-        && filePath.equals(cachedFilePath);
+    boolean sameFile = host.equals(cachedHost) && port == cachedPort && shareName.equals(cachedShare) && filePath.equals(cachedFilePath);
     if (!sameFile || smbFile == null) {
       closeSmb();
       try {
@@ -87,8 +89,7 @@ public class SmbDataSource extends BaseDataSource {
         connection = smbClient.connect(host, port);
         session = connection.authenticate(getAuthentication(uri));
         diskShare = (DiskShare) session.connectShare(shareName);
-        smbFile = diskShare.openFile(filePath, EnumSet.of(AccessMask.GENERIC_READ), null,
-            EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ), SMB2CreateDisposition.FILE_OPEN, null);
+        smbFile = diskShare.openFile(filePath, EnumSet.of(AccessMask.GENERIC_READ), null, EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ), SMB2CreateDisposition.FILE_OPEN, null);
         fileLength = smbFile.getFileInformation().getStandardInformation().getEndOfFile();
       } catch (IOException e) {
         closeSmb();
@@ -161,6 +162,7 @@ public class SmbDataSource extends BaseDataSource {
     closeSilently(session);
     closeSilently(connection);
     closeSilently(smbClient);
+    cachedPort = -1;
     smbFile = null;
     session = null;
     diskShare = null;

@@ -63,6 +63,9 @@ public final class DtsExtractor implements Extractor {
 
   private static void applyExtssOverrides(Format.Builder builder, DtsUtil.DtsHeader extssInfo) {
     builder.setSampleMimeType(extssInfo.mimeType);
+    if (extssInfo.codecs != null) {
+      builder.setCodecs(extssInfo.codecs);
+    }
     if (extssInfo.channelCount != C.LENGTH_UNSET) {
       builder.setChannelCount(extssInfo.channelCount);
     }
@@ -247,23 +250,26 @@ public final class DtsExtractor implements Extractor {
     if (headerSize > EXTSS_HEADER_PREFIX_SIZE) {
       input.peekFully(extssHeader, EXTSS_HEADER_PREFIX_SIZE, headerSize - EXTSS_HEADER_PREFIX_SIZE);
     }
-    return parseDtsHdHeaderWithXllXScan(input, extssHeader);
+    DtsUtil.DtsHeader dtsHeader = DtsUtil.parseDtsHdHeader(extssHeader);
+    return maybeReadDtsXCodecs(input, extssHeader, dtsHeader);
   }
 
-  private static DtsUtil.DtsHeader parseDtsHdHeaderWithXllXScan(ExtractorInput input, byte[] header) throws IOException {
-    DtsUtil.DtsHeader dtsHeader = DtsUtil.parseDtsHdHeader(header);
-    if (MimeTypes.AUDIO_DTS_MA.equals(dtsHeader.mimeType)) {
-      int xllPayloadSize = dtsHeader.frameSize - header.length;
-      if (xllPayloadSize > 0) {
-        int scanSize = Math.min(xllPayloadSize, DtsUtil.XLL_X_SCAN_MAX_BYTES);
-        byte[] xllPayload = new byte[scanSize];
-        input.peekFully(xllPayload, 0, scanSize, true);
-        if (DtsUtil.containsXllXSyncWord(xllPayload, 0, scanSize)) {
-          return dtsHeader.withMimeType(MimeTypes.AUDIO_DTS_X);
-        }
-      }
+  private static DtsUtil.DtsHeader maybeReadDtsXCodecs(
+      ExtractorInput input, byte[] extssHeader, DtsUtil.DtsHeader dtsHeader) throws IOException {
+    if (!DtsUtil.isDtsHdMaAudioMimeType(dtsHeader.mimeType)) {
+      return dtsHeader;
     }
-    return dtsHeader;
+    int payloadSize = dtsHeader.frameSize - extssHeader.length;
+    if (payloadSize <= 0) {
+      return dtsHeader;
+    }
+    int scanSize = Math.min(payloadSize, DtsUtil.XLL_X_SCAN_MAX_BYTES);
+    byte[] payload = new byte[scanSize];
+    if (!input.peekFully(payload, 0, scanSize, /* allowEndOfInput= */ true)) {
+      return dtsHeader;
+    }
+    @Nullable String codecs = DtsUtil.getDtsXCodecs(payload, /* offset= */ 0, scanSize);
+    return codecs != null ? dtsHeader.withCodecs(codecs) : dtsHeader;
   }
 
   @RequiresNonNull({"extractorOutput", "trackOutput"})

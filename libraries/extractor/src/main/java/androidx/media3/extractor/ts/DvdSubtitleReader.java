@@ -119,10 +119,6 @@ public final class DvdSubtitleReader implements ElementaryStreamReader {
     }
   }
 
-  @Override
-  public void packetFinished(boolean isEndOfInput) {
-  }
-
   private void emitCompleteSpu() {
     if (output == null || spuExpectedSize == 0 || spuTimeUs == C.TIME_UNSET) {
       return;

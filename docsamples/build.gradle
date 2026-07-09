@@ -13,7 +13,7 @@
 // limitations under the License.
 apply plugin: 'com.android.library'
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_config.gradle"
-
+apply plugin: 'kotlin-android'
 apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 android {

@@ -50,6 +50,7 @@ public final class PsExtractor implements Extractor {
   /* package */ static final int PACKET_START_CODE_PREFIX = 0x000001;
   /* package */ static final int MPEG_PROGRAM_END_CODE = 0x000001B9;
   private static final int MAX_STREAM_ID_PLUS_ONE = 0x100;
+  private static final int MPEG1_PACK_HEADER_SIZE = 12;
 
   // Max search length for first audio and video track in input data.
   private static final long MAX_SEARCH_LENGTH = 1024 * 1024;
@@ -119,9 +120,17 @@ public final class PsExtractor implements Extractor {
     }
     // MPEG-1 PS: byte 4 high nibble is '0010' (as per ISO 11172-1 pack_header).
     if ((scratch[4] & 0xF0) == 0x20) {
-      isMpeg1 = true;
-      return true;
+      if ((scratch[4] & 0xF1) != 0x21) {
+        return false;
+      }
+      input.resetPeekPosition();
+      input.advancePeekPosition(MPEG1_PACK_HEADER_SIZE);
+      input.peekFully(scratch, 0, 3);
+      boolean hasNextStartCode = startsWithStartCodePrefix(scratch);
+      isMpeg1 = hasNextStartCode;
+      return hasNextStartCode;
     }
+    isMpeg1 = false;
     // MPEG-2 PS: byte 4 format is '01xxx1xx'
     if ((scratch[4] & 0xC4) != 0x44) {
       return false;
@@ -147,8 +156,11 @@ public final class PsExtractor implements Extractor {
     input.advancePeekPosition(packStuffingLength);
     // Now check that the next 3 bytes are the beginning of an MPEG start code
     input.peekFully(scratch, 0, 3);
-    return (PACKET_START_CODE_PREFIX
-        == (((scratch[0] & 0xFF) << 16) | ((scratch[1] & 0xFF) << 8) | (scratch[2] & 0xFF)));
+    return startsWithStartCodePrefix(scratch);
+  }
+
+  private static boolean startsWithStartCodePrefix(byte[] scratch) {
+    return PACKET_START_CODE_PREFIX == (((scratch[0] & 0xFF) << 16) | ((scratch[1] & 0xFF) << 8) | (scratch[2] & 0xFF));
   }
 
   @Override
@@ -210,21 +222,30 @@ public final class PsExtractor implements Extractor {
     long peekBytesLeft =
         inputLength != C.LENGTH_UNSET ? inputLength - input.getPeekPosition() : C.LENGTH_UNSET;
     if (peekBytesLeft != C.LENGTH_UNSET && peekBytesLeft < 4) {
+      for (int i = 0; i < psPayloadReaders.size(); i++) {
+        psPayloadReaders.valueAt(i).consumeEndOfInput();
+      }
       return RESULT_END_OF_INPUT;
     }
     // First peek and check what type of start code is next.
     if (!input.peekFully(psPacketBuffer.getData(), 0, 4, true)) {
+      for (int i = 0; i < psPayloadReaders.size(); i++) {
+        psPayloadReaders.valueAt(i).consumeEndOfInput();
+      }
       return RESULT_END_OF_INPUT;
     }
 
     psPacketBuffer.setPosition(0);
     int nextStartCode = psPacketBuffer.readInt();
     if (nextStartCode == MPEG_PROGRAM_END_CODE) {
+      for (int i = 0; i < psPayloadReaders.size(); i++) {
+        psPayloadReaders.valueAt(i).consumeEndOfInput();
+      }
       return RESULT_END_OF_INPUT;
     } else if (nextStartCode == PACK_START_CODE) {
       if (isMpeg1) {
         // MPEG-1 pack header is always 12 bytes (4-byte start code + 8 bytes, no stuffing).
-        input.skipFully(12);
+        input.skipFully(MPEG1_PACK_HEADER_SIZE);
       } else {
         // MPEG-2: peek 10 more bytes to find the pack_stuffing_length.
         input.peekFully(psPacketBuffer.getData(), 0, 10);
@@ -387,7 +408,11 @@ public final class PsExtractor implements Extractor {
       pesPayloadReader.packetStarted(timeUs, TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR);
       pesPayloadReader.consume(data);
       // We always have complete PES packets with program stream.
-      pesPayloadReader.packetFinished(/* isEndOfInput= */ false);
+      pesPayloadReader.packetFinished();
+    }
+
+    public void consumeEndOfInput() {
+      pesPayloadReader.endOfInputReached();
     }
 
     /**
@@ -397,7 +422,7 @@ public final class PsExtractor implements Extractor {
      * STD buffer field, and a different PTS/DTS encoding without a fixed-length header.
      */
     private void consumeMpeg1Pes(ParsableByteArray data) throws ParserException {
-      timeUs = 0;
+      timeUs = C.TIME_UNSET;
       while (data.bytesLeft() > 0 && data.getData()[data.getPosition()] == (byte) 0xFF) {
         data.skipBytes(1);
       }
@@ -416,26 +441,10 @@ public final class PsExtractor implements Extractor {
         if (data.bytesLeft() < 5) {
           return;
         }
-        data.readBytes(pesScratch.data, 0, 5);
-        pesScratch.setPosition(0);
-        pesScratch.skipBits(4);
-        long pts = (long) pesScratch.readBits(3) << 30;
-        pesScratch.skipBits(1);
-        pts |= (long) pesScratch.readBits(15) << 15;
-        pesScratch.skipBits(1);
-        pts |= pesScratch.readBits(15);
-        pesScratch.skipBits(1);
+        long pts = readMpeg1Timestamp(data);
         timeUs = timestampAdjuster.adjustTsTimestamp(pts);
         if (firstNibble == 0x3 && data.bytesLeft() >= 5) {
-          data.readBytes(pesScratch.data, 0, 5);
-          pesScratch.setPosition(0);
-          pesScratch.skipBits(4);
-          long dts = (long) pesScratch.readBits(3) << 30;
-          pesScratch.skipBits(1);
-          dts |= (long) pesScratch.readBits(15) << 15;
-          pesScratch.skipBits(1);
-          dts |= pesScratch.readBits(15);
-          pesScratch.skipBits(1);
+          long dts = readMpeg1Timestamp(data);
           if (!seenFirstDts) {
             timestampAdjuster.adjustTsTimestamp(dts);
             seenFirstDts = true;
@@ -446,7 +455,20 @@ public final class PsExtractor implements Extractor {
       }
       pesPayloadReader.packetStarted(timeUs, TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR);
       pesPayloadReader.consume(data);
-      pesPayloadReader.packetFinished(false);
+      pesPayloadReader.packetFinished();
+    }
+
+    private long readMpeg1Timestamp(ParsableByteArray data) {
+      data.readBytes(pesScratch.data, 0, 5);
+      pesScratch.setPosition(0);
+      pesScratch.skipBits(4);
+      long timestamp = (long) pesScratch.readBits(3) << 30;
+      pesScratch.skipBits(1);
+      timestamp |= (long) pesScratch.readBits(15) << 15;
+      pesScratch.skipBits(1);
+      timestamp |= pesScratch.readBits(15);
+      pesScratch.skipBits(1);
+      return timestamp;
     }
 
     private void parseHeader() {
@@ -464,7 +486,7 @@ public final class PsExtractor implements Extractor {
     }
 
     private void parseHeaderExtension() {
-      timeUs = 0;
+      timeUs = C.TIME_UNSET;
       if (ptsFlag) {
         pesScratch.skipBits(4); // '0010' or '0011'
         long pts = (long) pesScratch.readBits(3) << 30;

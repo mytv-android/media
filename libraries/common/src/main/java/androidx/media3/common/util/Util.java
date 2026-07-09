@@ -1697,6 +1697,20 @@ public final class Util {
   }
 
   /**
+   * Converts a time in nanoseconds to the corresponding time in milliseconds, preserving {@link
+   * C#TIME_UNSET} and {@link C#TIME_END_OF_SOURCE} values.
+   *
+   * @param timeNs The time in nanoseconds.
+   * @return The corresponding time in milliseconds.
+   */
+  @UnstableApi
+  public static long nsToMs(long timeNs) {
+    return (timeNs == C.TIME_UNSET || timeNs == C.TIME_END_OF_SOURCE)
+        ? timeNs
+        : (timeNs / 1_000_000);
+  }
+
+  /**
    * Converts a time in microseconds to the corresponding time in milliseconds, preserving {@link
    * C#TIME_UNSET} and {@link C#TIME_END_OF_SOURCE} values.
    *
@@ -2596,6 +2610,7 @@ public final class Util {
       case C.ENCODING_PCM_32BIT:
         return 31;
       case C.ENCODING_DTS_UHD_P2:
+      case C.ENCODING_DTS_HD_MA:
       case C.ENCODING_DSD:
         return 34;
       default:

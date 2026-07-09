@@ -26,16 +26,18 @@ final class AudioHeader {
   final int subPacketSize;
   final int sampleRate;
   final int channels;
+  final String deintId;
   final String codecFourCC;
   final byte[] codecExtraData;
 
-  AudioHeader(int flavor, int subPacketH, int frameSize, int subPacketSize, int sampleRate, int channels, String codecFourCC, byte[] codecExtraData) {
+  AudioHeader(int flavor, int subPacketH, int frameSize, int subPacketSize, int sampleRate, int channels, String deintId, String codecFourCC, byte[] codecExtraData) {
     this.flavor = flavor;
     this.subPacketH = subPacketH;
     this.frameSize = frameSize;
     this.subPacketSize = subPacketSize;
     this.sampleRate = sampleRate;
     this.channels = channels;
+    this.deintId = deintId;
     this.codecFourCC = codecFourCC;
     this.codecExtraData = codecExtraData;
   }

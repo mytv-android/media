@@ -98,7 +98,10 @@ public final class MpegAudioReader implements ElementaryStreamReader {
 
   @Override
   public void packetStarted(long pesTimeUs, @TsPayloadReader.Flags int flags) {
-    timeUs = pesTimeUs;
+    // Preserve the current sample timeline when a PES packet has no timestamp.
+    if (pesTimeUs != C.TIME_UNSET) {
+      timeUs = pesTimeUs;
+    }
   }
 
   @Override
@@ -120,11 +123,6 @@ public final class MpegAudioReader implements ElementaryStreamReader {
           throw new IllegalStateException();
       }
     }
-  }
-
-  @Override
-  public void packetFinished(boolean isEndOfInput) {
-    // Do nothing.
   }
 
   /**

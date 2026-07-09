@@ -587,6 +587,8 @@ public interface Player {
         COMMAND_SET_MEDIA_ITEM,
         COMMAND_CHANGE_MEDIA_ITEMS,
         COMMAND_GET_AUDIO_ATTRIBUTES,
+        COMMAND_GET_AUDIO_OFFSET,
+        COMMAND_SET_AUDIO_OFFSET,
         COMMAND_GET_VOLUME,
         COMMAND_GET_DEVICE_VOLUME,
         COMMAND_SET_VOLUME,
@@ -599,6 +601,8 @@ public interface Player {
         COMMAND_GET_TEXT,
         COMMAND_SET_TRACK_SELECTION_PARAMETERS,
         COMMAND_GET_TRACKS,
+        COMMAND_GET_TEXT_OFFSET,
+        COMMAND_SET_TEXT_OFFSET,
         COMMAND_RELEASE
       };
 
@@ -901,18 +905,28 @@ public interface Player {
     default void onTracksChanged(Tracks tracks) {}
 
     /**
-     * Called when the value of {@link Player#getCurrentMediaTitles()} changes.
-     *
-     * <p>This is called when a multi-title media source (e.g. a DVD or Blu-ray ISO image) has been
-     * parsed and more than one playable title is available. The app should present a selection UI
-     * and re-prepare the player with the chosen title index.
+     * Called when the value of {@link Player#getCurrentMediaChapters()} changes.
      *
      * <p>{@link #onEvents(Player, Events)} will also be called to report this event along with
      * other events that happen in the same {@link Looper} message queue iteration.
      *
-     * @param titles The available titles. Never null, never empty when this callback fires.
+     * @param chapters The available seekable chapters. Never null, but may be empty when entries
+     *     become unavailable.
      */
-    default void onMediaTitlesChanged(List<MediaTitle> titles) {}
+    @UnstableApi
+    default void onMediaChaptersChanged(List<MediaChapter> chapters) {}
+
+    /**
+     * Called when the value of {@link Player#getCurrentMediaEditions()} changes.
+     *
+     * <p>{@link #onEvents(Player, Events)} will also be called to report this event along with
+     * other events that happen in the same {@link Looper} message queue iteration.
+     *
+     * @param editions The available selectable editions. Never null, but may be empty when entries
+     *     become unavailable.
+     */
+    @UnstableApi
+    default void onMediaEditionsChanged(List<MediaEdition> editions) {}
 
     /**
      * Called when the value of {@link Player#getMediaMetadata()} changes.
@@ -1628,7 +1642,8 @@ public interface Player {
     EVENT_METADATA,
     EVENT_DEVICE_INFO_CHANGED,
     EVENT_DEVICE_VOLUME_CHANGED,
-    EVENT_MEDIA_TITLES_CHANGED
+    EVENT_MEDIA_CHAPTERS_CHANGED,
+    EVENT_MEDIA_EDITIONS_CHANGED
   })
   @interface Event {}
 
@@ -1731,8 +1746,11 @@ public interface Player {
   /** {@link #getDeviceVolume()} or {@link #isDeviceMuted()} changed. */
   int EVENT_DEVICE_VOLUME_CHANGED = 30;
 
-  /** {@link #getCurrentMediaTitles()} changed. */
-  int EVENT_MEDIA_TITLES_CHANGED = 31;
+  /** {@link #getCurrentMediaChapters()} changed. */
+  @UnstableApi int EVENT_MEDIA_CHAPTERS_CHANGED = 31;
+
+  /** {@link #getCurrentMediaEditions()} changed. */
+  @UnstableApi int EVENT_MEDIA_EDITIONS_CHANGED = 32;
 
   /**
    * Commands that indicate which method calls are currently permitted on a particular {@code
@@ -1769,6 +1787,8 @@ public interface Player {
    *   <li>{@link #COMMAND_SET_MEDIA_ITEM}
    *   <li>{@link #COMMAND_CHANGE_MEDIA_ITEMS}
    *   <li>{@link #COMMAND_GET_AUDIO_ATTRIBUTES}
+   *   <li>{@link #COMMAND_GET_AUDIO_OFFSET}
+   *   <li>{@link #COMMAND_SET_AUDIO_OFFSET}
    *   <li>{@link #COMMAND_GET_VOLUME}
    *   <li>{@link #COMMAND_GET_DEVICE_VOLUME}
    *   <li>{@link #COMMAND_SET_VOLUME}
@@ -1781,6 +1801,8 @@ public interface Player {
    *   <li>{@link #COMMAND_GET_TEXT}
    *   <li>{@link #COMMAND_SET_TRACK_SELECTION_PARAMETERS}
    *   <li>{@link #COMMAND_GET_TRACKS}
+   *   <li>{@link #COMMAND_GET_TEXT_OFFSET}
+   *   <li>{@link #COMMAND_SET_TEXT_OFFSET}
    *   <li>{@link #COMMAND_RELEASE}
    * </ul>
    */
@@ -1815,6 +1837,8 @@ public interface Player {
     COMMAND_SET_MEDIA_ITEM,
     COMMAND_CHANGE_MEDIA_ITEMS,
     COMMAND_GET_AUDIO_ATTRIBUTES,
+    COMMAND_GET_AUDIO_OFFSET,
+    COMMAND_SET_AUDIO_OFFSET,
     COMMAND_GET_VOLUME,
     COMMAND_GET_DEVICE_VOLUME,
     COMMAND_SET_VOLUME,
@@ -1827,6 +1851,8 @@ public interface Player {
     COMMAND_GET_TEXT,
     COMMAND_SET_TRACK_SELECTION_PARAMETERS,
     COMMAND_GET_TRACKS,
+    COMMAND_GET_TEXT_OFFSET,
+    COMMAND_SET_TEXT_OFFSET,
     COMMAND_RELEASE,
   })
   @interface Command {}
@@ -2226,6 +2252,38 @@ public interface Player {
    * #isCommandAvailable(int) available}.
    */
   int COMMAND_GET_TRACKS = 30;
+
+  /**
+   * Command to get the current text display offset.
+   *
+   * <p>The {@link #getTextOffsetMs()} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_GET_TEXT_OFFSET = 36;
+
+  /**
+   * Command to set the text display offset.
+   *
+   * <p>The {@link #setTextOffsetMs(long)} method must only be called if this command is
+   * {@linkplain #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_SET_TEXT_OFFSET = 37;
+
+  /**
+   * Command to get the current audio display offset.
+   *
+   * <p>The {@link #getAudioOffsetMs()} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_GET_AUDIO_OFFSET = 38;
+
+  /**
+   * Command to set the audio display offset.
+   *
+   * <p>The {@link #setAudioOffsetMs(long)} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_SET_AUDIO_OFFSET = 39;
 
   /**
    * Command to release the player.
@@ -2933,13 +2991,49 @@ public interface Player {
   Tracks getCurrentTracks();
 
   /**
-   * Returns the available titles for the current media item, or an empty list if the current media
-   * source has only one title or does not support multi-title selection.
+   * Returns the available seekable chapters for the current media item, or an empty list if none are
+   * available.
    *
-   * @see Listener#onMediaTitlesChanged(List)
+   * @see Listener#onMediaChaptersChanged(List)
    */
-  default List<MediaTitle> getCurrentMediaTitles() {
+  @UnstableApi
+  default List<MediaChapter> getCurrentMediaChapters() {
     return Collections.emptyList();
+  }
+
+  /**
+   * Returns the available selectable editions for the current media item, or an empty list if none
+   * are available.
+   *
+   * <p>Examples include Matroska editions, DVD/Blu-ray titles or playlists, and SACD areas.
+   *
+   * @see Listener#onMediaEditionsChanged(List)
+   */
+  @UnstableApi
+  default List<MediaEdition> getCurrentMediaEditions() {
+    return Collections.emptyList();
+  }
+
+  /**
+   * Selects a seekable chapter entry.
+   *
+   * @param chapter The chapter to select.
+   * @return Whether the selection request was accepted.
+   */
+  @UnstableApi
+  default boolean selectChapter(MediaChapter chapter) {
+    return false;
+  }
+
+  /**
+   * Selects an edition entry when the current source supports source-level selection.
+   *
+   * @param edition The edition to select.
+   * @return Whether the selection request was accepted.
+   */
+  @UnstableApi
+  default boolean selectEdition(MediaEdition edition) {
+    return false;
   }
 
   /**
@@ -3331,6 +3425,58 @@ public interface Player {
    */
   @FloatRange(from = 0, to = 1.0)
   float getVolume();
+
+  /**
+   * Sets the audio playback offset in milliseconds.
+   *
+   * <p>A positive value delays audio. A negative value plays audio earlier.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_AUDIO_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   *
+   * @param audioOffsetMs The audio playback offset, in milliseconds.
+   */
+  @UnstableApi
+  default void setAudioOffsetMs(long audioOffsetMs) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Returns the audio playback offset in milliseconds.
+   *
+   * <p>This method must only be called if {@link #COMMAND_GET_AUDIO_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  default long getAudioOffsetMs() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Sets the text display offset in milliseconds.
+   *
+   * <p>A positive value delays subtitles. A negative value shows subtitles earlier.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_TEXT_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   *
+   * @param textOffsetMs The text display offset, in milliseconds.
+   */
+  @UnstableApi
+  default void setTextOffsetMs(long textOffsetMs) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Returns the text display offset in milliseconds.
+   *
+   * <p>This method must only be called if {@link #COMMAND_GET_TEXT_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  default long getTextOffsetMs() {
+    throw new UnsupportedOperationException();
+  }
 
   /**
    * Sets the audio volume to 0.

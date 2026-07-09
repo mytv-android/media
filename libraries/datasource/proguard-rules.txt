@@ -10,3 +10,9 @@
 -keepclassmembers class androidx.media3.datasource.rtmp.RtmpDataSource {
   <init>();
 }
+
+# SMBJ
+-keep class com.hierynomus.** { *; }
+-keep class net.engio.mbassy.** { *; }
+-dontwarn org.ietf.jgss.**
+-dontwarn javax.**

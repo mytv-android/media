@@ -23,6 +23,7 @@ import androidx.media3.common.AuxEffectInfo;
 import androidx.media3.common.C;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaChapter;
 import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.UnstableApi;
@@ -320,6 +321,11 @@ public class StubExoPlayer extends StubPlayer implements ExoPlayer {
 
   @Override
   public PlayerMessage createMessage(PlayerMessage.Target target) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean selectChapter(MediaChapter chapter) {
     throw new UnsupportedOperationException();
   }
 

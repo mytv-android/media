@@ -29,6 +29,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DrmInitData;
 import androidx.media3.common.Format;
+import androidx.media3.common.Label;
 import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
@@ -56,6 +57,7 @@ import androidx.media3.extractor.GaplessInfoHolder;
 import androidx.media3.extractor.HevcConfig;
 import androidx.media3.extractor.VorbisUtil;
 import androidx.media3.extractor.VvcConfig;
+import androidx.media3.extractor.metadata.Chapter;
 import androidx.media3.extractor.text.vobsub.VobsubParser;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -221,6 +223,8 @@ public final class BoxParser {
                 SmtaAtomUtil.parseSmta(udtaData, atomPosition + atomSize));
       } else if (atomType == Mp4Box.TYPE_xyz) {
         metadata = metadata.copyWithAppendedEntriesFrom(parseXyz(udtaData));
+      } else if (atomType == Mp4Box.TYPE_chpl) {
+        metadata = metadata.copyWithAppendedEntriesFrom(parseChpl(udtaData));
       }
       udtaData.setPosition(atomPosition + atomSize);
     }
@@ -385,6 +389,20 @@ public final class BoxParser {
       return null;
     }
     StsdData stsdData = parseStsd(stsd.data, tkhdData, mdhdData.language, drmInitData, isQuickTime);
+
+    int chapterTrackId = C.INDEX_UNSET;
+    @Nullable Mp4Box.ContainerBox tref = trak.getContainerBoxOfType(Mp4Box.TYPE_tref);
+    if (tref != null) {
+      @Nullable Mp4Box.LeafBox chap = tref.getLeafBoxOfType(Mp4Box.TYPE_chap);
+      if (chap != null) {
+        ParsableByteArray chapData = chap.data;
+        chapData.setPosition(Mp4Box.HEADER_SIZE);
+        if (chapData.bytesLeft() >= 4) {
+          chapterTrackId = chapData.readInt();
+        }
+      }
+    }
+
     @Nullable long[] editListDurations = null;
     @Nullable long[] editListMediaTimes = null;
     if (!ignoreEditLists) {
@@ -416,6 +434,7 @@ public final class BoxParser {
     } else {
       format = stsdData.format;
     }
+    boolean shouldBeExposed = !Objects.equals(format.sampleMimeType, MimeTypes.TEXT_UNKNOWN);
     return new Track(
         tkhdData.id,
         trackType,
@@ -428,7 +447,9 @@ public final class BoxParser {
         stsdData.trackEncryptionBoxes,
         stsdData.nalUnitLengthFieldLength,
         editListDurations,
-        editListMediaTimes);
+        editListMediaTimes,
+        shouldBeExposed,
+        chapterTrackId);
   }
 
   /**
@@ -730,10 +751,13 @@ public final class BoxParser {
           sampleCount);
     }
 
+    long[] editListMediaTimes = checkNotNull(track.editListMediaTimes);
+    boolean ignoreBadAudioEdit = hasBadAudioEdit(track, duration, editListMediaTimes);
     if (omitTrackSampleTable) {
       long editedDurationUs;
-      long[] editListMediaTimes = checkNotNull(track.editListMediaTimes);
-      if (track.editListDurations.length == 1 && track.editListDurations[0] == 0) {
+      if (ignoreBadAudioEdit) {
+        editedDurationUs = durationUs;
+      } else if (track.editListDurations.length == 1 && track.editListDurations[0] == 0) {
         long editStartTime = editListMediaTimes[0];
         editedDurationUs =
             Util.scaleLargeTimestamp(
@@ -767,10 +791,25 @@ public final class BoxParser {
     // handles simple discarding/delaying of samples. The extractor may place further restrictions
     // on what edited streams are playable.
 
+    if (ignoreBadAudioEdit) {
+      Util.scaleLargeTimestampsInPlace(timestamps, C.MICROS_PER_SECOND, track.timescale);
+      return new TrackSampleTable(
+          track,
+          offsets,
+          sizes,
+          maximumSize,
+          timestamps,
+          flags,
+          syncSampleIndices,
+          hasOnlySyncSamples,
+          durationUs,
+          sampleCount);
+    }
+
     if (track.editListDurations.length == 1
         && track.type == C.TRACK_TYPE_AUDIO
         && timestamps.length >= 2) {
-      long editStartTime = checkNotNull(track.editListMediaTimes)[0];
+      long editStartTime = editListMediaTimes[0];
       long editEndTime =
           editStartTime
               + Util.scaleLargeTimestamp(
@@ -812,7 +851,7 @@ public final class BoxParser {
       // The current version of the spec leaves handling of an edit with zero segment_duration in
       // unfragmented files open to interpretation. We handle this as a special case and include all
       // samples in the edit.
-      long editStartTime = checkNotNull(track.editListMediaTimes)[0];
+      long editStartTime = editListMediaTimes[0];
       for (int i = 0; i < timestamps.length; i++) {
         timestamps[i] =
             Util.scaleLargeTimestamp(
@@ -845,7 +884,6 @@ public final class BoxParser {
     boolean copyMetadata = false;
     int[] startIndices = new int[track.editListDurations.length];
     int[] endIndices = new int[track.editListDurations.length];
-    long[] editListMediaTimes = checkNotNull(track.editListMediaTimes);
     for (int i = 0; i < track.editListDurations.length; i++) {
       long editMediaTime = editListMediaTimes[i];
       if (editMediaTime != -1) {
@@ -995,6 +1033,19 @@ public final class BoxParser {
     return null;
   }
 
+  private static boolean hasBadAudioEdit(Track track, long mediaDuration, long[] editListMediaTimes) {
+    if (track.type != C.TRACK_TYPE_AUDIO || checkNotNull(track.editListDurations).length != 1) {
+      return false;
+    }
+    long editStartTime = editListMediaTimes[0];
+    if (editStartTime == -1 || editStartTime >= mediaDuration) {
+      return false;
+    }
+    long editDurationInMediaTimescale = Util.scaleLargeTimestamp(track.editListDurations[0], track.timescale, track.movieTimescale);
+    long remainingMediaDuration = mediaDuration - editStartTime;
+    return editDurationInMediaTimescale > remainingMediaDuration + EDIT_LIST_DURATION_TOLERANCE_TIMESCALE_UNITS;
+  }
+
   @Nullable
   private static Metadata parseIlst(ParsableByteArray ilst, int limit) {
     ilst.skipBytes(Mp4Box.HEADER_SIZE);
@@ -1024,6 +1075,33 @@ public final class BoxParser {
           Float.parseFloat(location.substring(latitudeEndIndex, location.length() - 1));
       return new Metadata(new Mp4LocationData(latitude, longitude));
     } catch (IndexOutOfBoundsException | NumberFormatException exception) {
+      // Invalid input.
+      return null;
+    }
+  }
+
+  /** Parses the Nero chapters from the chpl atom. */
+  @Nullable
+  /* package */ static Metadata parseChpl(ParsableByteArray chplData) {
+    try {
+      chplData.skipBytes(5); // 1 byte version + 3 bytes flags + 1 byte reserved.
+      int chapterCount = chplData.readInt();
+      List<Metadata.Entry> chapters = new ArrayList<>();
+      for (int i = 0; i < chapterCount; i++) {
+        long startTimeMs = chplData.readLong() / 10000; // Start time in 100-nanoseconds resolution
+        if (startTimeMs < 0) {
+          startTimeMs = C.TIME_UNSET;
+        }
+        int titleLength = chplData.readUnsignedByte();
+        String title = chplData.readString(titleLength);
+        chapters.add(
+            new Chapter.Builder()
+                .setStartTimeMs(startTimeMs)
+                .setTitle(new Label(null, title))
+                .build());
+      }
+      return chapters.isEmpty() ? null : new Metadata(chapters);
+    } catch (IndexOutOfBoundsException e) {
       // Invalid input.
       return null;
     }
@@ -1288,7 +1366,8 @@ public final class BoxParser {
           || childAtomType == Mp4Box.TYPE_wvtt
           || childAtomType == Mp4Box.TYPE_stpp
           || childAtomType == Mp4Box.TYPE_c608
-          || childAtomType == Mp4Box.TYPE_mp4s) {
+          || childAtomType == Mp4Box.TYPE_mp4s
+          || childAtomType == TYPE_text) {
         parseTextSampleEntry(
             stsd, childAtomType, childStartPosition, childAtomSize, tkhdData, language, out);
       } else if (childAtomType == Mp4Box.TYPE_mett) {
@@ -1350,6 +1429,11 @@ public final class BoxParser {
         String idx = formatVobsubIdx(esds.initializationData, tkhdData.width, tkhdData.height);
         initializationData = ImmutableList.of(Util.getUtf8Bytes(idx));
       }
+    } else if (atomType == TYPE_text) {
+      // The TYPE_text track is a generic fallback text format. We assign a placeholder MIME type so
+      // the track is not discarded. This preserves the track's sample table for downstream
+      // extractors to use (e.g., for QuickTime chapters).
+      mimeType = MimeTypes.TEXT_UNKNOWN;
     } else {
       // Never happens.
       throw new IllegalStateException();
@@ -2194,8 +2278,10 @@ public final class BoxParser {
       mimeType = MimeTypes.AUDIO_AC4;
     } else if (atomType == Mp4Box.TYPE_dtsc) {
       mimeType = MimeTypes.AUDIO_DTS;
-    } else if (atomType == Mp4Box.TYPE_dtsh || atomType == Mp4Box.TYPE_dtsl) {
+    } else if (atomType == Mp4Box.TYPE_dtsh) {
       mimeType = MimeTypes.AUDIO_DTS_HD;
+    } else if (atomType == Mp4Box.TYPE_dtsl) {
+      mimeType = MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS;
     } else if (atomType == Mp4Box.TYPE_dtse) {
       mimeType = MimeTypes.AUDIO_DTS_EXPRESS;
     } else if (atomType == Mp4Box.TYPE_dtsx) {

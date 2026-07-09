@@ -447,7 +447,7 @@ public final class WavExtractor implements Extractor {
       }
       emitPcmSampleMetadata();
       if (bytesLeft <= 0) {
-        reader.packetFinished(true);
+        reader.endOfInputReached();
       }
       return bytesLeft <= 0;
     }

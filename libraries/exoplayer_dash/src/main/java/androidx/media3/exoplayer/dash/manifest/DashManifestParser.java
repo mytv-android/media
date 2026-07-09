@@ -999,7 +999,7 @@ public class DashManifestParser extends DefaultHandler
     long presentationTimeOffset =
         parseLong(
             xpp, "presentationTimeOffset", parent != null ? parent.presentationTimeOffset : 0);
-    long duration = parseLong(xpp, "duration", parent != null ? parent.duration : C.TIME_UNSET);
+    long duration = parseTicks(xpp, "duration", parent != null ? parent.duration : C.TIME_UNSET, timescale);
     long startNumber = parseLong(xpp, "startNumber", parent != null ? parent.startNumber : 1);
     long availabilityTimeOffsetUs =
         getFinalAvailabilityTimeOffset(
@@ -1082,7 +1082,7 @@ public class DashManifestParser extends DefaultHandler
     long presentationTimeOffset =
         parseLong(
             xpp, "presentationTimeOffset", parent != null ? parent.presentationTimeOffset : 0);
-    long duration = parseLong(xpp, "duration", parent != null ? parent.duration : C.TIME_UNSET);
+    long duration = parseTicks(xpp, "duration", parent != null ? parent.duration : C.TIME_UNSET, timescale);
     long startNumber = parseLong(xpp, "startNumber", parent != null ? parent.startNumber : 1);
     long endNumber =
         parseLastSegmentNumberSupplementalProperty(adaptationSetSupplementalProperties);
@@ -1229,7 +1229,7 @@ public class DashManifestParser extends DefaultHandler
       ByteArrayOutputStream scratchOutputStream)
       throws IOException, XmlPullParserException {
     long id = parseLong(xpp, "id", 0);
-    long duration = parseLong(xpp, "duration", C.TIME_UNSET);
+    long duration = parseTicks(xpp, "duration", C.TIME_UNSET, timescale);
     long presentationTime = parseLong(xpp, "presentationTime", 0);
     long durationMs = Util.scaleLargeTimestamp(duration, C.MILLIS_PER_SECOND, timescale);
     long presentationTimesUs =
@@ -1340,7 +1340,7 @@ public class DashManifestParser extends DefaultHandler
         if (newStartTime != C.TIME_UNSET) {
           startTime = newStartTime;
         }
-        elementDuration = parseLong(xpp, "d", C.TIME_UNSET);
+        elementDuration = parseTicks(xpp, "d", C.TIME_UNSET, timescale);
         elementRepeatCount = parseInt(xpp, "r", 0);
         havePreviousTimelineElement = true;
       } else {
@@ -2005,6 +2005,15 @@ public class DashManifestParser extends DefaultHandler
   protected static long parseLong(XmlPullParser xpp, String name, long defaultValue) {
     String value = xpp.getAttributeValue(null, name);
     return value == null ? defaultValue : Long.parseLong(value.replaceAll("[^0-9]", ""));
+  }
+
+  protected static long parseTicks(XmlPullParser xpp, String name, long defaultValue, long timescale) {
+    String value = xpp.getAttributeValue(null, name);
+    if (value == null) {
+      return defaultValue;
+    }
+    value = value.replace(',', '.');
+    return value.startsWith("P") || value.startsWith("-P") ? Util.scaleLargeTimestamp(Util.parseXsDuration(value), timescale, C.MILLIS_PER_SECOND) : Long.parseLong(value);
   }
 
   protected static float parseFloat(XmlPullParser xpp, String name, float defaultValue) {

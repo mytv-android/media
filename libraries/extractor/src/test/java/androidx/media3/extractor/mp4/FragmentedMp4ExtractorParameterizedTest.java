@@ -106,10 +106,7 @@ public final class FragmentedMp4ExtractorParameterizedTest {
                 /* additionalEmsgTrackOutput= */ null),
         file,
         /* peekLimit= */ 700,
-        new ExtractorAsserts.AssertionConfig.Builder()
-            .setDumpFilesPrefix(
-                file.replaceFirst("media", "extractordumps") + ".no-merge-fragmented-sidx")
-            .build(),
+        new ExtractorAsserts.AssertionConfig.Builder().build(),
         simulationConfig);
   }
 
@@ -127,10 +124,7 @@ public final class FragmentedMp4ExtractorParameterizedTest {
                 /* additionalEmsgTrackOutput= */ null),
         file,
         /* peekLimit= */ 700,
-        new ExtractorAsserts.AssertionConfig.Builder()
-            .setDumpFilesPrefix(
-                file.replaceFirst("media", "extractordumps") + ".merge-fragmented-sidx")
-            .build(),
+        new ExtractorAsserts.AssertionConfig.Builder().build(),
         simulationConfig);
   }
 
@@ -210,6 +204,22 @@ public final class FragmentedMp4ExtractorParameterizedTest {
         /* closedCaptionFormats= */ ImmutableList.of(),
         "media/mp4/sample_opus_fragmented.mp4",
         /* peekLimit= */ 540);
+  }
+
+  @Test
+  public void sampleWithDtsExpress() throws Exception {
+    assertExtractorBehavior(
+        /* closedCaptionFormats= */ ImmutableList.of(),
+        "media/mp4/sample_fragmented_dts_express.mp4",
+        /* peekLimit= */ 4096);
+  }
+
+  @Test
+  public void sampleWithDtsHdMa() throws Exception {
+    assertExtractorBehavior(
+        /* closedCaptionFormats= */ ImmutableList.of(),
+        "media/mp4/sample_fragmented_dts_hd_ma.mp4",
+        /* peekLimit= */ 4096);
   }
 
   @Test

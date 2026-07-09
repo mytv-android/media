@@ -27,6 +27,7 @@ import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.container.DolbyVisionConfig;
 import androidx.media3.container.NalUnitUtil;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.TrackOutput;
@@ -42,6 +43,8 @@ public final class H265Reader implements ElementaryStreamReader {
 
   private final SeiReader seiReader;
   private final String containerMimeType;
+  @Nullable private final DolbyVisionConfig dolbyVisionConfig;
+  @Nullable private final byte[] dolbyVisionCsd;
 
   private @MonotonicNonNull String formatId;
   private @MonotonicNonNull TrackOutput output;
@@ -70,8 +73,31 @@ public final class H265Reader implements ElementaryStreamReader {
    * @param containerMimeType The MIME type of the container holding the stream.
    */
   public H265Reader(SeiReader seiReader, String containerMimeType) {
+    this(seiReader, containerMimeType, /* dolbyVisionConfig= */ null);
+  }
+
+  /**
+   * @param seiReader An SEI reader for consuming closed caption channels.
+   * @param containerMimeType The MIME type of the container holding the stream.
+   * @param dolbyVisionConfig The Dolby Vision configuration signalled in the container, or {@code
+   *     null} if the stream is plain HEVC.
+   */
+  public H265Reader(
+      SeiReader seiReader,
+      String containerMimeType,
+      @Nullable DolbyVisionConfig dolbyVisionConfig) {
+    this(seiReader, containerMimeType, dolbyVisionConfig, /* dolbyVisionCsd= */ null);
+  }
+
+  H265Reader(
+      SeiReader seiReader,
+      String containerMimeType,
+      @Nullable DolbyVisionConfig dolbyVisionConfig,
+      @Nullable byte[] dolbyVisionCsd) {
     this.seiReader = seiReader;
     this.containerMimeType = containerMimeType;
+    this.dolbyVisionConfig = dolbyVisionConfig;
+    this.dolbyVisionCsd = dolbyVisionCsd;
     prefixFlags = new boolean[3];
     vps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_VPS, 128);
     sps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_SPS, 128);
@@ -173,15 +199,17 @@ public final class H265Reader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
+  public void packetFinished() {
     assertTracksCreated();
-    if (isEndOfInput) {
-      seiReader.flush();
-      // Simulate end of current NAL unit and start an unspecified one to trigger output of current
-      // sample
-      endNalUnit(totalBytesWritten, 0, 0, pesTimeUs);
-      startNalUnit(totalBytesWritten, 0, NalUnitUtil.H265_NAL_UNIT_TYPE_UNSPECIFIED, pesTimeUs);
-    }
+  }
+
+  @Override
+  public void endOfInputReached() {
+    seiReader.flush();
+    // Simulate end of current NAL unit and start an unspecified one to trigger output of current
+    // sample
+    endNalUnit(totalBytesWritten, 0, 0, pesTimeUs);
+    startNalUnit(totalBytesWritten, 0, NalUnitUtil.H265_NAL_UNIT_TYPE_UNSPECIFIED, pesTimeUs);
   }
 
   @RequiresNonNull("sampleReader")
@@ -241,7 +269,7 @@ public final class H265Reader implements ElementaryStreamReader {
     }
   }
 
-  private static Format parseMediaFormat(
+  private Format parseMediaFormat(
       @Nullable String formatId,
       NalUnitTargetBuffer vps,
       NalUnitTargetBuffer sps,
@@ -269,10 +297,40 @@ public final class H265Reader implements ElementaryStreamReader {
               spsData.profileTierLevel.constraintBytes,
               spsData.profileTierLevel.generalLevelIdc);
     }
+
+    String sampleMimeType = MimeTypes.VIDEO_H265;
+    @C.ColorSpace int colorSpace = spsData.colorSpace;
+    @C.ColorRange int colorRange = spsData.colorRange;
+    @C.ColorTransfer int colorTransfer = spsData.colorTransfer;
+    if (dolbyVisionConfig != null) {
+      // The PMT signals Dolby Vision: expose the track as Dolby Vision so the DV decoder is
+      // selected and configured with the correct profile, instead of decoding the HEVC base layer
+      // directly (which produces a green tint for non-backward-compatible profiles such as 5).
+      sampleMimeType = MimeTypes.VIDEO_DOLBY_VISION;
+      codecs = dolbyVisionConfig.codecs;
+      // Profile 5 is the only non-cross-compatible profile: its base layer uses the proprietary
+      // IPT-PQ-c2 colour space and the SPS VUI omits colour signalling, so the decoder receives
+      // unset colour aspects (0:0:0:0) and renders a green/magenta tint. Synthesize the colour info
+      // the DV pipeline expects. Cross-compatible profiles (8.x etc.) carry a standard HEVC base
+      // layer whose SPS already signals the correct colour (which may be HLG, not PQ), so leave
+      // those untouched.
+      if (dolbyVisionConfig.profile == 5) {
+        if (colorSpace == Format.NO_VALUE) {
+          colorSpace = C.COLOR_SPACE_BT2020;
+        }
+        if (colorTransfer == Format.NO_VALUE) {
+          colorTransfer = C.COLOR_TRANSFER_ST2084;
+        }
+        if (colorRange == Format.NO_VALUE) {
+          colorRange = C.COLOR_RANGE_LIMITED;
+        }
+      }
+    }
+
     return new Format.Builder()
         .setId(formatId)
         .setContainerMimeType(containerMimeType)
-        .setSampleMimeType(MimeTypes.VIDEO_H265)
+        .setSampleMimeType(sampleMimeType)
         .setCodecs(codecs)
         .setWidth(spsData.width)
         .setHeight(spsData.height)
@@ -280,16 +338,20 @@ public final class H265Reader implements ElementaryStreamReader {
         .setDecodedHeight(spsData.decodedHeight)
         .setColorInfo(
             new ColorInfo.Builder()
-                .setColorSpace(spsData.colorSpace)
-                .setColorRange(spsData.colorRange)
-                .setColorTransfer(spsData.colorTransfer)
+                .setColorSpace(colorSpace)
+                .setColorRange(colorRange)
+                .setColorTransfer(colorTransfer)
                 .setLumaBitdepth(spsData.bitDepthLumaMinus8 + 8)
                 .setChromaBitdepth(spsData.bitDepthChromaMinus8 + 8)
                 .build())
         .setPixelWidthHeightRatio(spsData.pixelWidthHeightRatio)
         .setMaxNumReorderSamples(spsData.maxNumReorderPics)
         .setMaxSubLayers(spsData.maxSubLayersMinus1 + 1)
-        .setInitializationData(Collections.singletonList(csdData))
+        .setInitializationData(
+            dolbyVisionCsd != null
+                ? CodecSpecificDataUtil.setDolbyVisionCsd(
+                    Collections.singletonList(csdData), dolbyVisionCsd)
+                : Collections.singletonList(csdData))
         .build();
   }
 
@@ -356,6 +418,11 @@ public final class H265Reader implements ElementaryStreamReader {
           isFirstPrefixNalUnit = !readingPrefix;
           readingPrefix = true;
         }
+      } else if (!readingSample
+          && (nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_RPU
+              || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_EL)) {
+        isFirstPrefixNalUnit = !readingPrefix;
+        readingPrefix = true;
       }
 
       // Look for the first slice flag if this NAL unit contains a slice_segment_layer_rbsp.
@@ -416,7 +483,9 @@ public final class H265Reader implements ElementaryStreamReader {
     /** Returns whether a NAL unit type is one that occurs in the VLC body of a sample. */
     private static boolean isVclBodyNalUnit(int nalUnitType) {
       return nalUnitType < NalUnitUtil.H265_NAL_UNIT_TYPE_VPS
-          || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_SUFFIX_SEI;
+          || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_SUFFIX_SEI
+          || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_RPU
+          || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_EL;
     }
   }
 }

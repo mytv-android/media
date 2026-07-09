@@ -34,7 +34,9 @@ import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.TimestampAdjuster;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.container.DolbyVisionConfig;
 import androidx.media3.extractor.Extractor;
+import androidx.media3.extractor.ConstantBitrateSeekMap;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ExtractorsFactory;
@@ -126,6 +128,8 @@ public final class TsExtractor implements Extractor {
           };
 
   public static final int TS_PACKET_SIZE = 188;
+  public static final int M2TS_PACKET_SIZE = 192;
+  public static final int M2TS_PACKET_HEADER_SIZE = 4;
   public static final int DEFAULT_TIMESTAMP_SEARCH_BYTES = 600 * TS_PACKET_SIZE;
 
   public static final int TS_STREAM_TYPE_MPA = 0x03;
@@ -154,6 +158,17 @@ public final class TsExtractor implements Extractor {
   public static final int TS_STREAM_TYPE_DC2_H262 = 0x80;
   public static final int TS_STREAM_TYPE_AIT = 0x101;
 
+  // HDMV (Blu-ray) specific stream types.
+  public static final int TS_STREAM_TYPE_HDMV_LPCM = 0x102; // Virtual: 0x80 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_DTS_AUTO = 0x103; // Virtual: 0x82 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_DTS_HD_MASTER = 0x104; // Virtual: 0x86 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_TRUE_HD = 0x83;
+  public static final int TS_STREAM_TYPE_HDMV_E_AC3 = 0x84;
+  public static final int TS_STREAM_TYPE_HDMV_DTS_HD_HRA = 0x85;
+  public static final int TS_STREAM_TYPE_HDMV_E_AC3_SEC = 0xA1;
+  public static final int TS_STREAM_TYPE_HDMV_DTS_EXPRESS_SEC = 0xA2;
+  public static final int TS_STREAM_TYPE_HDMV_VC1 = 0xEA;
+
   public static final int TS_SYNC_BYTE = 0x47; // First byte of each TS packet.
 
   private static final int TS_PAT_PID = 0;
@@ -163,12 +178,15 @@ public final class TsExtractor implements Extractor {
   private static final long E_AC3_FORMAT_IDENTIFIER = 0x45414333;
   private static final long AC4_FORMAT_IDENTIFIER = 0x41432d34;
   private static final long HEVC_FORMAT_IDENTIFIER = 0x48455643;
-
-  private static final int BUFFER_SIZE = TS_PACKET_SIZE * 50;
+  private static final long DOVI_FORMAT_IDENTIFIER = 0x444f5649; // "DOVI"
+  private static final long HDMV_FORMAT_IDENTIFIER = 0x48444D56; // "HDMV"
 
   private final @Mode int mode;
   private final @Flags int extractorFlags;
   private final int timestampSearchBytes;
+  private final int packetSize;
+  private final int packetHeaderOffset;
+  private final int bufferSize;
   private final boolean ignoreSectionCrc;
   private final List<TimestampAdjuster> timestampAdjusters;
   private final ParsableByteArray tsPacketBuffer;
@@ -336,23 +354,44 @@ public final class TsExtractor implements Extractor {
       TimestampAdjuster timestampAdjuster,
       TsPayloadReader.Factory payloadReaderFactory,
       int timestampSearchBytes) {
+    this(
+        mode,
+        extractorFlags,
+        subtitleParserFactory,
+        timestampAdjuster,
+        payloadReaderFactory,
+        timestampSearchBytes,
+        TS_PACKET_SIZE);
+  }
+
+  /* package */ TsExtractor(
+      @Mode int mode,
+      @Flags int extractorFlags,
+      SubtitleParser.Factory subtitleParserFactory,
+      TimestampAdjuster timestampAdjuster,
+      TsPayloadReader.Factory payloadReaderFactory,
+      int timestampSearchBytes,
+      int packetSize) {
     this.payloadReaderFactory = checkNotNull(payloadReaderFactory);
     this.timestampSearchBytes = timestampSearchBytes;
     this.mode = mode;
     this.extractorFlags = extractorFlags;
     this.subtitleParserFactory = subtitleParserFactory;
+    this.packetSize = packetSize;
+    this.packetHeaderOffset = packetSize - TS_PACKET_SIZE;
+    this.bufferSize = packetSize * 50;
     if (mode == MODE_SINGLE_PMT || mode == MODE_HLS) {
       timestampAdjusters = Collections.singletonList(timestampAdjuster);
     } else {
       timestampAdjusters = new ArrayList<>();
       timestampAdjusters.add(timestampAdjuster);
     }
-    tsPacketBuffer = new ParsableByteArray(new byte[BUFFER_SIZE], 0);
+    tsPacketBuffer = new ParsableByteArray(new byte[bufferSize], 0);
     trackIds = new SparseBooleanArray();
     trackPids = new SparseBooleanArray();
     tsPayloadReaders = new SparseArray<>();
     continuityCounters = new SparseIntArray();
-    durationReader = new TsDurationReader(timestampSearchBytes);
+    durationReader = new TsDurationReader(timestampSearchBytes, packetSize);
     ignoreSectionCrc = (extractorFlags & FLAG_IGNORE_SECTION_CRC) != 0;
     output = ExtractorOutput.PLACEHOLDER;
     pcrPid = -1;
@@ -553,7 +592,7 @@ public final class TsExtractor implements Extractor {
     for (int i = 0; i < tsPayloadReaders.size(); i++) {
       TsPayloadReader reader = tsPayloadReaders.valueAt(i);
       if (reader instanceof PesReader) {
-        ((PesReader) reader).enableRandomAccessIndicator(seekTimeUs);
+        ((PesReader) reader).enableRandomAccessIndicator();
       }
     }
   }
@@ -572,17 +611,24 @@ public final class TsExtractor implements Extractor {
   private void maybeOutputSeekMap(long inputLength) {
     if (!hasOutputSeekMap) {
       hasOutputSeekMap = true;
-      if (durationReader.getDurationUs() != C.TIME_UNSET) {
-        tsBinarySearchSeeker =
-            new TsBinarySearchSeeker(
-                durationReader.getPcrTimestampAdjuster(),
-                durationReader.getDurationUs(),
-                inputLength,
-                pcrPid,
-                timestampSearchBytes);
-        output.seekMap(tsBinarySearchSeeker.getSeekMap());
+      long durationUs = durationReader.getDurationUs();
+      if (durationUs != C.TIME_UNSET) {
+        if (packetSize != TS_PACKET_SIZE) {
+          int bitrate = (int) (inputLength * 8_000_000L / durationUs);
+          output.seekMap(new ConstantBitrateSeekMap(inputLength, 0, bitrate, packetSize));
+        } else {
+          tsBinarySearchSeeker =
+              new TsBinarySearchSeeker(
+                  durationReader.getPcrTimestampAdjuster(),
+                  durationUs,
+                  inputLength,
+                  pcrPid,
+                  timestampSearchBytes,
+                  packetSize);
+          output.seekMap(tsBinarySearchSeeker.getSeekMap());
+        }
       } else {
-        output.seekMap(new SeekMap.Unseekable(durationReader.getDurationUs()));
+        output.seekMap(new SeekMap.Unseekable(durationUs));
       }
     }
   }
@@ -590,7 +636,7 @@ public final class TsExtractor implements Extractor {
   private boolean fillBufferWithAtLeastOnePacket(ExtractorInput input) throws IOException {
     byte[] data = tsPacketBuffer.getData();
     // Shift bytes to the start of the buffer if there isn't enough space left at the end.
-    if (BUFFER_SIZE - tsPacketBuffer.getPosition() < TS_PACKET_SIZE) {
+    if (bufferSize - tsPacketBuffer.getPosition() < packetSize) {
       int bytesLeft = tsPacketBuffer.bytesLeft();
       if (bytesLeft > 0) {
         System.arraycopy(data, tsPacketBuffer.getPosition(), data, 0, bytesLeft);
@@ -598,9 +644,9 @@ public final class TsExtractor implements Extractor {
       tsPacketBuffer.reset(data, bytesLeft);
     }
     // Read more bytes until we have at least one packet.
-    while (tsPacketBuffer.bytesLeft() < TS_PACKET_SIZE) {
+    while (tsPacketBuffer.bytesLeft() < packetSize) {
       int limit = tsPacketBuffer.limit();
-      int read = input.read(data, limit, BUFFER_SIZE - limit);
+      int read = input.read(data, limit, bufferSize - limit);
       if (read == C.RESULT_END_OF_INPUT) {
         return false;
       }
@@ -616,7 +662,7 @@ public final class TsExtractor implements Extractor {
    * the buffer, or if no packet could be found within the buffer.
    */
   private int findEndOfFirstTsPacketInBuffer() {
-    int searchStart = tsPacketBuffer.getPosition();
+    int searchStart = tsPacketBuffer.getPosition() + packetHeaderOffset;
     int limit = tsPacketBuffer.limit();
     int syncBytePosition =
         TsUtil.findSyncBytePosition(tsPacketBuffer.getData(), searchStart, limit);
@@ -718,6 +764,7 @@ public final class TsExtractor implements Extractor {
     private static final int TS_PMT_DESC_DTS = 0x7B;
     private static final int TS_PMT_DESC_DVB_EXT = 0x7F;
     private static final int TS_PMT_DESC_DVBSUBS = 0x59;
+    private static final int TS_PMT_DESC_DOVI = 0xB0;
 
     private static final int TS_PMT_DESC_DVB_EXT_AC4 = 0x15;
     private static final int TS_PMT_DESC_DVB_EXT_DTS_HD = 0x0E;
@@ -785,8 +832,23 @@ public final class TsExtractor implements Extractor {
       pmtScratch.skipBits(4);
       int programInfoLength = pmtScratch.readBits(12);
 
-      // Skip the descriptors.
-      sectionData.skipBytes(programInfoLength);
+      // Parse program-level descriptors to detect HDMV registration.
+      boolean isHdmv = false;
+      int programInfoEnd = sectionData.getPosition() + programInfoLength;
+      while (sectionData.getPosition() + 2 <= programInfoEnd) {
+        int descTag = sectionData.readUnsignedByte();
+        int descLen = sectionData.readUnsignedByte();
+        int descEnd = sectionData.getPosition() + descLen;
+        if (descEnd > programInfoEnd) {
+          break;
+        }
+        if (descTag == TS_PMT_DESC_REGISTRATION && descLen >= 4 && sectionData.readUnsignedInt() == HDMV_FORMAT_IDENTIFIER) {
+          isHdmv = true;
+          break;
+        }
+        sectionData.setPosition(descEnd);
+      }
+      sectionData.setPosition(programInfoEnd);
 
       if (mode == MODE_HLS && id3Reader == null) {
         // Setup an ID3 track regardless of whether there's a corresponding entry, in case one
@@ -816,6 +878,15 @@ public final class TsExtractor implements Extractor {
         if (streamType == 0x06 || streamType == 0x05) {
           streamType = esInfo.streamType;
         }
+        if (streamType == TS_STREAM_TYPE_DC2_H262 && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_LPCM;
+        }
+        if (streamType == TS_STREAM_TYPE_SPLICE_INFO && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_DTS_HD_MASTER;
+        }
+        if (streamType == TS_STREAM_TYPE_HDMV_DTS && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_DTS_AUTO;
+        }
         remainingEntriesLength -= esInfoLength + 5;
 
         int trackId = elementaryPid;
@@ -827,7 +898,7 @@ public final class TsExtractor implements Extractor {
         TsPayloadReader reader =
             mode == MODE_HLS && streamType == TS_STREAM_TYPE_ID3
                 ? id3Reader
-                : payloadReaderFactory.createPayloadReader(streamType, esInfo);
+                : payloadReaderFactory.createPayloadReader(streamType, elementaryPid, esInfo);
         if (mode != MODE_HLS
             || elementaryPid < trackIdToPidScratch.get(trackId, MAX_PID_PLUS_ONE)) {
           trackIdToPidScratch.put(trackId, elementaryPid);
@@ -886,6 +957,7 @@ public final class TsExtractor implements Extractor {
       String language = null;
       @EsInfo.AudioType int audioType = AUDIO_TYPE_UNDEFINED;
       List<DvbSubtitleInfo> dvbSubtitleInfos = null;
+      @Nullable DolbyVisionConfig dolbyVisionConfig = null;
       while (data.getPosition() < descriptorsEndPosition) {
         int descriptorTag = data.readUnsignedByte();
         int descriptorLength = data.readUnsignedByte();
@@ -904,7 +976,17 @@ public final class TsExtractor implements Extractor {
             streamType = TS_STREAM_TYPE_AC4;
           } else if (formatIdentifier == HEVC_FORMAT_IDENTIFIER) {
             streamType = TS_STREAM_TYPE_H265;
+          } else if (formatIdentifier == DOVI_FORMAT_IDENTIFIER) {
+            // The DOVI registration descriptor signals that this is a Dolby Vision stream, but does
+            // not carry profile/level info. Full DV treatment (format and colour-info override)
+            // requires a co-located TS_PMT_DESC_DOVI (0xB0) descriptor in the same ES loop.
+            streamType = TS_STREAM_TYPE_H265;
           }
+        } else if (descriptorTag == TS_PMT_DESC_DOVI) {
+          // Dolby Vision video descriptor: 16-bit dv_descriptor header layout matching the dvcC
+          // record (dv_version_major, dv_version_minor, then dv_profile/dv_level bits).
+          streamType = TS_STREAM_TYPE_H265;
+          dolbyVisionConfig = DolbyVisionConfig.parse(data);
         } else if (descriptorTag == TS_PMT_DESC_AC3) { // AC-3_descriptor in DVB (ETSI EN 300 468)
           streamType = TS_STREAM_TYPE_AC3;
         } else if (descriptorTag == TS_PMT_DESC_EAC3) { // enhanced_AC-3_descriptor
@@ -950,7 +1032,8 @@ public final class TsExtractor implements Extractor {
           language,
           audioType,
           dvbSubtitleInfos,
-          Arrays.copyOfRange(data.getData(), descriptorsStartPosition, descriptorsEndPosition));
+          Arrays.copyOfRange(data.getData(), descriptorsStartPosition, descriptorsEndPosition),
+          dolbyVisionConfig);
     }
   }
 }

@@ -155,18 +155,20 @@ public final class SubripParser implements SubtitleParser {
       // Read and parse the text and tags.
       textBuilder.setLength(0);
       tags.clear();
-      currentLine = parsableByteArray.readLine(charset);
-      while (!TextUtils.isEmpty(currentLine)) {
+      while (true) {
+        int lineStartPosition = parsableByteArray.getPosition();
+        currentLine = parsableByteArray.readLine(charset);
+        if (TextUtils.isEmpty(currentLine)) {
+          break;
+        }
+        if (isNextCueIndexLine(currentLine, charset)) {
+          parsableByteArray.setPosition(lineStartPosition);
+          break;
+        }
         if (textBuilder.length() > 0) {
           textBuilder.append("<br>");
         }
         textBuilder.append(processLine(currentLine, tags));
-        currentLine = parsableByteArray.readLine(charset);
-        try {
-          lastIndex = Integer.parseInt(currentLine);
-          break;
-        } catch (NumberFormatException e) {
-        }
       }
 
       Spanned text = Html.fromHtml(textBuilder.toString());
@@ -208,6 +210,18 @@ public final class SubripParser implements SubtitleParser {
   private Charset detectUtfCharset(ParsableByteArray data) {
     @Nullable Charset charset = data.readUtfCharsetFromBom();
     return charset != null ? charset : StandardCharsets.UTF_8;
+  }
+
+  private boolean isNextCueIndexLine(String line, Charset charset) {
+    try {
+      Integer.parseInt(line);
+    } catch (NumberFormatException e) {
+      return false;
+    }
+    int position = parsableByteArray.getPosition();
+    @Nullable String nextLine = parsableByteArray.readLine(charset);
+    parsableByteArray.setPosition(position);
+    return nextLine != null && SUBRIP_TIMING_LINE.matcher(nextLine).matches();
   }
 
   /**

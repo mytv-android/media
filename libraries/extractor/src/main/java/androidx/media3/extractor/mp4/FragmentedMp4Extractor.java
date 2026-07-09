@@ -49,6 +49,7 @@ import androidx.media3.extractor.Ac4Util;
 import androidx.media3.extractor.CeaUtil;
 import androidx.media3.extractor.ChunkIndex;
 import androidx.media3.extractor.ChunkIndexMerger;
+import androidx.media3.extractor.DtsUtil;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
@@ -254,9 +255,9 @@ public class FragmentedMp4Extractor implements Extractor {
   // Whether extractorOutput.seekMap has been called.
   private boolean haveOutputSeekMap;
 
-  // Whether we've encountered and merged multiple sidx boxes with different start times and
-  // extractorOutput.seekMap has been called.
-  private boolean haveOutputSeekMapFromMultipleSidx;
+  // Whether the upfront forward scan for sidx boxes (triggered by FLAG_MERGE_FRAGMENTED_SIDX) has
+  // successfully completed and output the merged seek map.
+  private boolean upfrontSidxScanComplete;
 
   private long seekPositionBeforeSidxProcessing;
 
@@ -540,7 +541,7 @@ public class FragmentedMp4Extractor implements Extractor {
               seekPosition.position = seekPositionBeforeSidxProcessing;
               seekPositionBeforeSidxProcessing = C.INDEX_UNSET;
               extractorOutput.seekMap(chunkIndexMerger.merge());
-              haveOutputSeekMapFromMultipleSidx = true;
+              upfrontSidxScanComplete = true;
               return Extractor.RESULT_SEEK;
             } else {
               reorderingBufferQueue.flush();
@@ -723,11 +724,13 @@ public class FragmentedMp4Extractor implements Extractor {
       Pair<Long, ChunkIndex> result = parseSidx(leaf.data, input.getPosition());
       chunkIndexMerger.add(result.second);
       segmentIndexEarliestPresentationTimeUs = result.first;
-      if (!haveOutputSeekMap) {
-        extractorOutput.seekMap(result.second);
+      if (!upfrontSidxScanComplete) {
+        extractorOutput.seekMap(
+            chunkIndexMerger.size() == 1 ? result.second : chunkIndexMerger.merge());
         haveOutputSeekMap = true;
-      } else if ((flags & FLAG_MERGE_FRAGMENTED_SIDX) != 0
-          && !haveOutputSeekMapFromMultipleSidx
+      }
+      if ((flags & FLAG_MERGE_FRAGMENTED_SIDX) != 0
+          && !upfrontSidxScanComplete
           && chunkIndexMerger.size() > 1) {
         seekPositionBeforeSidxProcessing = input.getPosition();
       }
@@ -801,6 +804,9 @@ public class FragmentedMp4Extractor implements Extractor {
       for (int i = 0; i < trackCount; i++) {
         TrackSampleTable sampleTable = sampleTables.get(i);
         Track track = sampleTable.track;
+        if (!track.shouldBeExposed) {
+          continue;
+        }
         TrackOutput output = extractorOutput.track(i, track.type);
         output.durationUs(track.durationUs);
         Format.Builder formatBuilder = track.format.buildUpon();
@@ -824,10 +830,19 @@ public class FragmentedMp4Extractor implements Extractor {
       }
       extractorOutput.endTracks();
     } else {
-      checkState(trackBundles.size() == trackCount);
+      int exposedTrackCount = 0;
+      for (int i = 0; i < trackCount; i++) {
+        if (sampleTables.get(i).track.shouldBeExposed) {
+          exposedTrackCount++;
+        }
+      }
+      checkState(trackBundles.size() == exposedTrackCount);
       for (int i = 0; i < trackCount; i++) {
         TrackSampleTable sampleTable = sampleTables.get(i);
         Track track = sampleTable.track;
+        if (!track.shouldBeExposed) {
+          continue;
+        }
         trackBundles
             .get(track.id)
             .reset(sampleTable, getDefaultSampleValues(defaultSampleValuesArray, track.id));
@@ -1797,6 +1812,15 @@ public class FragmentedMp4Extractor implements Extractor {
         }
       }
     } else {
+      Format pendingFormat = trackBundle.pendingFormat;
+      if (pendingFormat != null && DtsUtil.isDtsBaseAudioMimeType(track.format.sampleMimeType)) {
+        trackBundle.baseFormat =
+            DtsUtil.updateFormatWithDtsHdInfo(input, sampleSize, trackBundle.baseFormat);
+        Format outputFormat =
+            trackBundle.baseFormat.buildUpon().setDrmInitData(pendingFormat.drmInitData).build();
+        trackBundle.output.format(outputFormat);
+        trackBundle.pendingFormat = null;
+      }
       while (sampleBytesWritten < sampleSize) {
         int writtenBytes = output.sampleData(input, sampleSize - sampleBytesWritten, false);
         sampleBytesWritten += writtenBytes;
@@ -2000,9 +2024,16 @@ public class FragmentedMp4Extractor implements Extractor {
     public int currentTrackRunIndex;
     public int firstSampleToOutputIndex;
 
-    private final Format baseFormat;
     private final ParsableByteArray encryptionSignalByte;
     private final ParsableByteArray defaultInitializationVector;
+
+    /**
+     * A {@link Format} that needs to be passed to {@link #output}, after being possibly modified
+     * based on sample data, before {@link TrackOutput#sampleMetadata} is called.
+     */
+    @Nullable private Format pendingFormat;
+
+    private Format baseFormat;
 
     private boolean currentlyInFragment;
 
@@ -2019,13 +2050,18 @@ public class FragmentedMp4Extractor implements Extractor {
       scratch = new ParsableByteArray();
       encryptionSignalByte = new ParsableByteArray(1);
       defaultInitializationVector = new ParsableByteArray();
+      if (DtsUtil.isDtsBaseAudioMimeType(baseFormat.sampleMimeType)) {
+        pendingFormat = baseFormat;
+      }
       reset(moovSampleTable, defaultSampleValues);
     }
 
     public void reset(TrackSampleTable moovSampleTable, DefaultSampleValues defaultSampleValues) {
       this.moovSampleTable = moovSampleTable;
       this.defaultSampleValues = defaultSampleValues;
-      output.format(baseFormat);
+      if (pendingFormat == null) {
+        output.format(baseFormat);
+      }
       resetFragmentInfo();
     }
 
@@ -2037,7 +2073,11 @@ public class FragmentedMp4Extractor implements Extractor {
       @Nullable String schemeType = encryptionBox != null ? encryptionBox.schemeType : null;
       DrmInitData updatedDrmInitData = drmInitData.copyWithSchemeType(schemeType);
       Format format = baseFormat.buildUpon().setDrmInitData(updatedDrmInitData).build();
-      output.format(format);
+      if (pendingFormat != null) {
+        pendingFormat = format;
+      } else {
+        output.format(format);
+      }
     }
 
     /** Resets the current fragment, sample indices and {@link #currentlyInFragment} boolean. */

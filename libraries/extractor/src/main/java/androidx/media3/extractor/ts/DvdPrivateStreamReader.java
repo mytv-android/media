@@ -162,11 +162,7 @@ public final class DvdPrivateStreamReader implements ElementaryStreamReader {
     ElementaryStreamReader activeReader = subReaders.valueAt(readerIndex);
     activeReader.packetStarted(timeUs, TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR);
     activeReader.consume(data);
-    activeReader.packetFinished(false);
-  }
-
-  @Override
-  public void packetFinished(boolean isEndOfInput) {
+    activeReader.packetFinished();
   }
 
   @Nullable

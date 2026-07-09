@@ -33,6 +33,8 @@ import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -47,9 +49,13 @@ import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
+import androidx.media3.common.util.BundleCollectionUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -154,6 +160,8 @@ import java.util.Objects;
     private long seekForwardIncrementMs;
     private long maxSeekToPreviousPositionMs;
     private Tracks currentTracks;
+    private ImmutableList<MediaChapter> currentMediaChapters;
+    private ImmutableList<MediaEdition> currentMediaEditions;
     private TrackSelectionParameters trackSelectionParameters;
 
     public Builder(PlayerInfo playerInfo) {
@@ -189,6 +197,8 @@ import java.util.Objects;
       seekForwardIncrementMs = playerInfo.seekForwardIncrementMs;
       maxSeekToPreviousPositionMs = playerInfo.maxSeekToPreviousPositionMs;
       currentTracks = playerInfo.currentTracks;
+      currentMediaChapters = playerInfo.currentMediaChapters;
+      currentMediaEditions = playerInfo.currentMediaEditions;
       trackSelectionParameters = playerInfo.trackSelectionParameters;
     }
 
@@ -389,6 +399,18 @@ import java.util.Objects;
     }
 
     @CanIgnoreReturnValue
+    public Builder setCurrentMediaChapters(List<MediaChapter> chapters) {
+      currentMediaChapters = ImmutableList.copyOf(chapters);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setCurrentMediaEditions(List<MediaEdition> editions) {
+      currentMediaEditions = ImmutableList.copyOf(editions);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
     public Builder setTrackSelectionParameters(TrackSelectionParameters parameters) {
       trackSelectionParameters = parameters;
       return this;
@@ -431,6 +453,8 @@ import java.util.Objects;
           seekForwardIncrementMs,
           maxSeekToPreviousPositionMs,
           currentTracks,
+          currentMediaChapters,
+          currentMediaEditions,
           trackSelectionParameters);
     }
   }
@@ -483,6 +507,8 @@ import java.util.Objects;
           /* seekForwardIncrementMs= */ C.DEFAULT_SEEK_FORWARD_INCREMENT_MS,
           /* maxSeekToPreviousPositionMs= */ C.DEFAULT_MAX_SEEK_TO_PREVIOUS_POSITION_MS,
           /* currentTracks= */ Tracks.EMPTY,
+          /* currentMediaChapters= */ ImmutableList.of(),
+          /* currentMediaEditions= */ ImmutableList.of(),
           TrackSelectionParameters.DEFAULT);
 
   @Nullable public final PlaybackException playerError;
@@ -547,6 +573,10 @@ import java.util.Objects;
   public final long maxSeekToPreviousPositionMs;
 
   public final Tracks currentTracks;
+
+  public final ImmutableList<MediaChapter> currentMediaChapters;
+
+  public final ImmutableList<MediaEdition> currentMediaEditions;
 
   public final TrackSelectionParameters trackSelectionParameters;
 
@@ -739,6 +769,14 @@ import java.util.Objects;
     return new Builder(this).setCurrentTracks(tracks).build();
   }
 
+  public PlayerInfo copyWithCurrentMediaChapters(List<MediaChapter> chapters) {
+    return new Builder(this).setCurrentMediaChapters(chapters).build();
+  }
+
+  public PlayerInfo copyWithCurrentMediaEditions(List<MediaEdition> editions) {
+    return new Builder(this).setCurrentMediaEditions(editions).build();
+  }
+
   @CheckResult
   public PlayerInfo copyWithTrackSelectionParameters(TrackSelectionParameters parameters) {
     return new Builder(this).setTrackSelectionParameters(parameters).build();
@@ -777,6 +815,8 @@ import java.util.Objects;
       long seekForwardIncrementMs,
       long maxSeekToPreviousPositionMs,
       Tracks currentTracks,
+      List<MediaChapter> currentMediaChapters,
+      List<MediaEdition> currentMediaEditions,
       TrackSelectionParameters parameters) {
     this.playerError = playerError;
     this.mediaItemTransitionReason = mediaItemTransitionReason;
@@ -810,6 +850,8 @@ import java.util.Objects;
     this.seekForwardIncrementMs = seekForwardIncrementMs;
     this.maxSeekToPreviousPositionMs = maxSeekToPreviousPositionMs;
     this.currentTracks = currentTracks;
+    this.currentMediaChapters = ImmutableList.copyOf(currentMediaChapters);
+    this.currentMediaEditions = ImmutableList.copyOf(currentMediaEditions);
     this.trackSelectionParameters = parameters;
   }
 
@@ -871,8 +913,10 @@ import java.util.Objects;
   private static final String FIELD_TIMELINE_CHANGE_REASON = Util.intToStringMaxRadix(31);
   private static final String FIELD_IN_PROCESS_BINDER = Util.intToStringMaxRadix(32);
   private static final String FIELD_AUDIO_SESSION_ID = Util.intToStringMaxRadix(34);
+  private static final String FIELD_CURRENT_MEDIA_CHAPTERS = Util.intToStringMaxRadix(35);
+  private static final String FIELD_CURRENT_MEDIA_EDITIONS = Util.intToStringMaxRadix(36);
 
-  // Next field key = 35
+  // Next field key = 37
 
   /**
    * Returns a copy of this player info, filtered by the specified available commands.
@@ -925,6 +969,10 @@ import java.util.Objects;
     }
     if (excludeTracks || !availableCommands.contains(Player.COMMAND_GET_TRACKS)) {
       builder.setCurrentTracks(Tracks.EMPTY);
+    }
+    if (!canAccessCurrentMediaItem) {
+      builder.setCurrentMediaChapters(ImmutableList.of());
+      builder.setCurrentMediaEditions(ImmutableList.of());
     }
     return builder.build();
   }
@@ -1044,6 +1092,16 @@ import java.util.Objects;
     if (!currentTracks.equals(Tracks.EMPTY)) {
       bundle.putBundle(FIELD_CURRENT_TRACKS, currentTracks.toBundle());
     }
+    if (!currentMediaChapters.isEmpty()) {
+      bundle.putParcelableArrayList(
+          FIELD_CURRENT_MEDIA_CHAPTERS,
+          BundleCollectionUtil.toBundleArrayList(currentMediaChapters, MediaChapter::toBundle));
+    }
+    if (!currentMediaEditions.isEmpty()) {
+      bundle.putParcelableArrayList(
+          FIELD_CURRENT_MEDIA_EDITIONS,
+          BundleCollectionUtil.toBundleArrayList(currentMediaEditions, MediaEdition::toBundle));
+    }
     if (!trackSelectionParameters.equals(TrackSelectionParameters.DEFAULT)) {
       bundle.putBundle(FIELD_TRACK_SELECTION_PARAMETERS, trackSelectionParameters.toBundle());
     }
@@ -1157,6 +1215,22 @@ import java.util.Objects;
     Tracks currentTracks =
         currentTracksBundle == null ? Tracks.EMPTY : Tracks.fromBundle(currentTracksBundle);
     @Nullable
+    ArrayList<Bundle> currentMediaChapterBundles =
+        bundle.getParcelableArrayList(FIELD_CURRENT_MEDIA_CHAPTERS);
+    ImmutableList<MediaChapter> currentMediaChapters =
+        currentMediaChapterBundles == null
+            ? ImmutableList.of()
+            : BundleCollectionUtil.fromBundleList(
+                MediaChapter::fromBundle, currentMediaChapterBundles);
+    @Nullable
+    ArrayList<Bundle> currentMediaEditionBundles =
+        bundle.getParcelableArrayList(FIELD_CURRENT_MEDIA_EDITIONS);
+    ImmutableList<MediaEdition> currentMediaEditions =
+        currentMediaEditionBundles == null
+            ? ImmutableList.of()
+            : BundleCollectionUtil.fromBundleList(
+                MediaEdition::fromBundle, currentMediaEditionBundles);
+    @Nullable
     Bundle trackSelectionParametersBundle = bundle.getBundle(FIELD_TRACK_SELECTION_PARAMETERS);
     TrackSelectionParameters trackSelectionParameters =
         trackSelectionParametersBundle == null
@@ -1195,6 +1269,8 @@ import java.util.Objects;
         seekForwardIncrementMs,
         maxSeekToPreviousPosition,
         currentTracks,
+        currentMediaChapters,
+        currentMediaEditions,
         trackSelectionParameters);
   }
 

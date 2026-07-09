@@ -123,6 +123,7 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
     if (player.isCommandAvailable(Player.COMMAND_GET_AUDIO_ATTRIBUTES)) {
       state.setAudioAttributes(player.getAudioAttributes());
     }
+    state.setAudioSessionId(player.getAudioSessionId());
     state.setAvailableCommands(player.getAvailableCommands());
     if (player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)) {
       state.setContentBufferedPositionMs(positionSuppliers.contentBufferedPositionSupplier);
@@ -134,6 +135,8 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
     if (player.isCommandAvailable(Player.COMMAND_GET_TEXT)) {
       state.setCurrentCues(player.getCurrentCues());
     }
+    state.setCurrentMediaChapters(player.getCurrentMediaChapters());
+    state.setCurrentMediaEditions(player.getCurrentMediaEditions());
     if (player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)) {
       state.setCurrentMediaItemIndex(player.getCurrentMediaItemIndex());
     }
@@ -184,7 +187,23 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
     if (player.isCommandAvailable(Player.COMMAND_GET_VOLUME)) {
       state.setVolume(player.getVolume());
     }
+    if (player.isCommandAvailable(Player.COMMAND_GET_AUDIO_OFFSET)) {
+      state.setAudioOffsetMs(player.getAudioOffsetMs());
+    }
+    if (player.isCommandAvailable(Player.COMMAND_GET_TEXT_OFFSET)) {
+      state.setTextOffsetMs(player.getTextOffsetMs());
+    }
     return state.build();
+  }
+
+  @Override
+  public boolean selectChapter(MediaChapter chapter) {
+    return player.selectChapter(chapter);
+  }
+
+  @Override
+  public boolean selectEdition(MediaEdition edition) {
+    return player.selectEdition(edition);
   }
 
   @Override
@@ -261,6 +280,18 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
     } else {
       throw new IllegalStateException("Unknown volume operation type: " + volumeOperationType);
     }
+    return Futures.immediateVoidFuture();
+  }
+
+  @Override
+  protected ListenableFuture<?> handleSetAudioOffsetMs(long audioOffsetMs) {
+    player.setAudioOffsetMs(audioOffsetMs);
+    return Futures.immediateVoidFuture();
+  }
+
+  @Override
+  protected ListenableFuture<?> handleSetTextOffsetMs(long textOffsetMs) {
+    player.setTextOffsetMs(textOffsetMs);
     return Futures.immediateVoidFuture();
   }
 

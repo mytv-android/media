@@ -163,6 +163,16 @@ public final class Mp4ExtractorParameterizedTest {
   }
 
   @Test
+  public void mp4SampleWithDtsExpress() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_dts_express.mp4", /* peekLimit= */ 4096);
+  }
+
+  @Test
+  public void mp4SampleWithDtsHdMa() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_dts_hd_ma.mp4", /* peekLimit= */ 4096);
+  }
+
+  @Test
   public void mp4SampleWithColrMdcvAndClli() throws Exception {
     assertExtractorBehavior("media/mp4/sample_with_colr_mdcv_and_clli.mp4", /* peekLimit= */ 50);
   }
@@ -328,6 +338,16 @@ public final class Mp4ExtractorParameterizedTest {
   @Test
   public void mp4SampleWithVvc() throws Exception {
     assertExtractorBehavior("media/mp4/sample_vvc.mp4", /* peekLimit= */ 44);
+  }
+
+  @Test
+  public void mp4SampleWithChapters() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_chapters.mp4", /* peekLimit= */ 48);
+  }
+
+  @Test
+  public void mp4SampleWithNeroChaptersOnly() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_nero_chapters_only.mp4", /* peekLimit= */ 2152);
   }
 
   private void assertExtractorBehavior(String file, int peekLimit) throws IOException {

@@ -265,15 +265,12 @@ import java.io.IOException;
   }
 
   private static boolean checkMarkerBitsMpeg1(byte[] scrBytes) {
-    // byte[0]: '0010 SCR[32:30] 1' — top nibble is 0010, bit 0 is marker 1.
     if ((scrBytes[0] & 0xF1) != 0x21) {
       return false;
     }
-    // byte[2]: 'SCR[21:15] 1' — bit 0 is marker 1.
     if ((scrBytes[2] & 0x01) != 0x01) {
       return false;
     }
-    // byte[4]: 'SCR[6:0] 1' — bit 0 is marker 1.
     return (scrBytes[4] & 0x01) == 0x01;
   }
 

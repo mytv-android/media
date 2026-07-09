@@ -114,7 +114,7 @@ public final class LpcmReader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
+  public void packetFinished() {
     if (output == null || sampleTimeUs == C.TIME_UNSET || sampleBytesWritten == 0) {
       return;
     }

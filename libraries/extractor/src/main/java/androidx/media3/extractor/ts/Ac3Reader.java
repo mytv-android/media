@@ -194,8 +194,8 @@ public final class Ac3Reader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
-    if (isEndOfInput && pendingTotalSampleSize > 0) {
+  public void endOfInputReached() {
+    if (pendingTotalSampleSize > 0) {
       checkNotNull(output).sampleMetadata(pendingTimeUs, C.BUFFER_FLAG_KEY_FRAME, pendingTotalSampleSize, 0, null);
       pendingTotalSampleSize = 0;
     }

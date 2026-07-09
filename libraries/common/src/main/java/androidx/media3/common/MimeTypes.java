@@ -98,11 +98,24 @@ public final class MimeTypes {
   public static final String AUDIO_AC4 = BASE_TYPE_AUDIO + "/ac4";
   public static final String AUDIO_TRUEHD = BASE_TYPE_AUDIO + "/true-hd";
   public static final String AUDIO_DTS = BASE_TYPE_AUDIO + "/vnd.dts";
-  public static final String AUDIO_DTS_X = BASE_TYPE_AUDIO + "/vnd.dts.x";
   public static final String AUDIO_DTS_HD = BASE_TYPE_AUDIO + "/vnd.dts.hd";
-  public static final String AUDIO_DTS_MA = BASE_TYPE_AUDIO + "/vnd.dts.hd;profile=lossless";
+  public static final String AUDIO_DTS_HD_MA = BASE_TYPE_AUDIO + "/vnd.dts.hd;profile=dtsma";
   public static final String AUDIO_DTS_EXPRESS = BASE_TYPE_AUDIO + "/vnd.dts.hd;profile=lbr";
+
+  /**
+   * DTS-HD MA can be encoded in a multi-layer setup with a core layer ({@link #AUDIO_DTS_HD_MA}),
+   * where fallback to a DTS core decoder is possible, or in a single-layer setup with only a
+   * lossless layer, where this is not. The same MIME type is normally used for both, but it is
+   * important to differentiate this to understand whether decoder fallback is possible. Hence, use
+   * this synthetic MIME type to signal lossless-only DTS-HD MA.
+   */
+  @UnstableApi
+  public static final String AUDIO_MEDIA3_DTS_HD_MA_CORELESS =
+      BASE_TYPE_AUDIO + "/x-exoplayer-dtsma-coreless";
+
+  @UnstableApi
   public static final String AUDIO_DTS_UHD_P2 = BASE_TYPE_AUDIO + "/vnd.dts.uhd;profile=p2";
+
   public static final String AUDIO_DSD = BASE_TYPE_AUDIO + "/vnd.dsd";
   public static final String AUDIO_DSD_LSBF_PLANAR = BASE_TYPE_AUDIO + "/vnd.dsd-lsbf-planar";
   public static final String AUDIO_DSD_MSBF_PLANAR = BASE_TYPE_AUDIO + "/vnd.dsd-msbf-planar";
@@ -221,6 +234,12 @@ public final class MimeTypes {
    * registered codec types</a>.
    */
   @UnstableApi public static final String CODEC_E_AC3_JOC = "ec+3";
+
+  /** Codec marker for DTS-HD MA streams that carry a DTS:X extension. */
+  @UnstableApi public static final String CODEC_DTS_HD_MA_X = "dtsma-x";
+
+  /** Codec marker for DTS-HD MA streams that carry a DTS:X IMAX extension. */
+  @UnstableApi public static final String CODEC_DTS_HD_MA_X_IMAX = "dtsma-x-imax";
 
   private static final ArrayList<CustomMimeType> customMimeTypes = new ArrayList<>();
 
@@ -528,8 +547,13 @@ public final class MimeTypes {
       return MimeTypes.AUDIO_DTS;
     } else if (codec.startsWith("dtse")) {
       return MimeTypes.AUDIO_DTS_EXPRESS;
-    } else if (codec.startsWith("dtsh") || codec.startsWith("dtsl")) {
+    } else if (codec.startsWith("dtsh")) {
       return MimeTypes.AUDIO_DTS_HD;
+    } else if (codec.startsWith("dtsl")) {
+      return MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS;
+    } else if (codec.startsWith(CODEC_DTS_HD_MA_X_IMAX)
+        || codec.startsWith(CODEC_DTS_HD_MA_X)) {
+      return MimeTypes.AUDIO_DTS_HD_MA;
     } else if (codec.startsWith("dtsx")) {
       return MimeTypes.AUDIO_DTS_UHD_P2;
     } else if (codec.startsWith("opus")) {
@@ -733,9 +757,11 @@ public final class MimeTypes {
         return C.ENCODING_AC4;
       case MimeTypes.AUDIO_DTS:
         return C.ENCODING_DTS;
-      case MimeTypes.AUDIO_DTS_X:
       case MimeTypes.AUDIO_DTS_HD:
-      case MimeTypes.AUDIO_DTS_MA:
+        return C.ENCODING_DTS_HD;
+      case MimeTypes.AUDIO_DTS_HD_MA:
+      case MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS:
+        return C.ENCODING_DTS_HD_MA;
       case MimeTypes.AUDIO_DTS_EXPRESS:
         return C.ENCODING_DTS_HD;
       case MimeTypes.AUDIO_DTS_UHD_P2:

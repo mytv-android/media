@@ -65,6 +65,8 @@ import androidx.media3.common.BundleListRetriever;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.IllegalSeekPositionException;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -300,7 +302,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     clearSurfacesAndCallbacks();
     flushCommandQueueHandler.release();
     this.iSession = null;
-    if (iSession != null) {
+    if (iSession != null && iSession.asBinder().isBinderAlive()) {
       int seq = sequencedFutureManager.obtainNextSequenceNumber();
       try {
         iSession.asBinder().unlinkToDeath(deathRecipient, 0);
@@ -2143,6 +2145,16 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   }
 
   @Override
+  public List<MediaChapter> getCurrentMediaChapters() {
+    return playerInfo.currentMediaChapters;
+  }
+
+  @Override
+  public List<MediaEdition> getCurrentMediaEditions() {
+    return playerInfo.currentMediaEditions;
+  }
+
+  @Override
   public TrackSelectionParameters getTrackSelectionParameters() {
     return playerInfo.trackSelectionParameters;
   }
@@ -2553,6 +2565,16 @@ import org.checkerframework.checker.nullness.qual.NonNull;
       listeners.queueEvent(
           /* eventFlag= */ Player.EVENT_TRACKS_CHANGED,
           listener -> listener.onTracksChanged(newPlayerInfo.currentTracks));
+    }
+    if (!oldPlayerInfo.currentMediaChapters.equals(newPlayerInfo.currentMediaChapters)) {
+      listeners.queueEvent(
+          /* eventFlag= */ Player.EVENT_MEDIA_CHAPTERS_CHANGED,
+          listener -> listener.onMediaChaptersChanged(newPlayerInfo.currentMediaChapters));
+    }
+    if (!oldPlayerInfo.currentMediaEditions.equals(newPlayerInfo.currentMediaEditions)) {
+      listeners.queueEvent(
+          /* eventFlag= */ Player.EVENT_MEDIA_EDITIONS_CHANGED,
+          listener -> listener.onMediaEditionsChanged(newPlayerInfo.currentMediaEditions));
     }
     if (!oldPlayerInfo.mediaMetadata.equals(newPlayerInfo.mediaMetadata)) {
       listeners.queueEvent(
@@ -3891,10 +3913,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     }
 
     private void flushCommandQueue() {
-      try {
-        iSession.flushCommandQueue(controllerStub);
-      } catch (RemoteException e) {
-        Log.w(TAG, "Error in sending flushCommandQueue");
+      if (iSession != null && iSession.asBinder().isBinderAlive()) {
+        try {
+          iSession.flushCommandQueue(controllerStub);
+        } catch (RemoteException e) {
+          Log.w(TAG, "Error in sending flushCommandQueue", e);
+        }
       }
     }
   }

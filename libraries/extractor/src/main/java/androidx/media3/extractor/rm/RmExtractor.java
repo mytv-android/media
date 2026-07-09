@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public final class RmExtractor implements Extractor {
 
@@ -371,7 +372,7 @@ public final class RmExtractor implements Extractor {
       List<byte[]> initData = MimeTypes.AUDIO_AAC.equals(mimeType) ? Collections.singletonList(ra.codecExtraData) : buildAudioInitData(ra.codecExtraData, blockAlign);
 
       TrackOutput trackOutput = extractorOutput.track(streamId, C.TRACK_TYPE_AUDIO);
-      trackOutput.format(buildAudioFormat(streamId, mimeType, ra.codecFourCC.toLowerCase(), ra.channels, ra.sampleRate, avgBitRate, maxBitRate, maxInputSize, initData));
+      trackOutput.format(buildAudioFormat(streamId, mimeType, ra.codecFourCC.toLowerCase(Locale.US), ra.channels, ra.sampleRate, avgBitRate, maxBitRate, maxInputSize, initData));
       trackReaders.put(streamId, createAudioReader(trackOutput, ra));
     } catch (Exception e) {
       Log.w(TAG, "stream " + streamId + ": audio MDPR parse error", e);
@@ -400,14 +401,15 @@ public final class RmExtractor implements Extractor {
   }
 
   private static TrackReader createAudioReader(TrackOutput trackOutput, AudioHeader ra) {
-    String lowerFourCC = ra.codecFourCC.toLowerCase();
+    String lowerFourCC = ra.codecFourCC.toLowerCase(Locale.US);
+    String lowerDeintId = ra.deintId.toLowerCase(Locale.US);
     switch (lowerFourCC) {
       case "cook":
       case "atrc":
       case "atrc+":
-        return new CookAudioReader(trackOutput, ra.frameSize, ra.subPacketH, ra.subPacketSize, ra.sampleRate);
+        return "genr".equals(lowerDeintId) ? new CookAudioReader(trackOutput, ra.frameSize, ra.subPacketH, ra.subPacketSize, ra.sampleRate) : new PassThroughReader(trackOutput);
       case "sipr":
-        return new SiprAudioReader(trackOutput, ra.subPacketH, ra.frameSize);
+        return "sipr".equals(lowerDeintId) ? new SiprAudioReader(trackOutput, ra.subPacketH, ra.frameSize) : new PassThroughReader(trackOutput);
       case "dnet":
         return new Ac3AudioReader(trackOutput);
       case "raac":
@@ -428,7 +430,7 @@ public final class RmExtractor implements Extractor {
   }
 
   private static String fourCCToMime(String fourCC) {
-    switch (fourCC.toLowerCase()) {
+    switch (fourCC.toLowerCase(Locale.US)) {
       case "cook":
         return MimeTypes.AUDIO_COOK;
       case "atrc":
@@ -472,14 +474,18 @@ public final class RmExtractor implements Extractor {
     buf.skipBytes(4);
     int channels = buf.readShort() & 0xFFFF;
 
+    String deintId;
     String codecFourCC;
     if (version == 4) {
-      buf.skipBytes(buf.readUnsignedByte()); // interleaver id string
+      int deintIdLen = buf.readUnsignedByte();
+      deintId = new String(buf.getData(), buf.getPosition(), deintIdLen, StandardCharsets.US_ASCII).trim();
+      buf.skipBytes(deintIdLen);
       int codecIdLen = buf.readUnsignedByte();
       codecFourCC = new String(buf.getData(), buf.getPosition(), codecIdLen, StandardCharsets.US_ASCII).trim();
       buf.skipBytes(codecIdLen);
     } else {
-      buf.skipBytes(4); // deint_id
+      deintId = new String(buf.getData(), buf.getPosition(), 4, StandardCharsets.US_ASCII).trim();
+      buf.skipBytes(4);
       codecFourCC = new String(buf.getData(), buf.getPosition(), 4, StandardCharsets.US_ASCII).trim();
       buf.skipBytes(4);
     }
@@ -503,7 +509,7 @@ public final class RmExtractor implements Extractor {
       }
     }
 
-    return new AudioHeader(flavor, subPacketH, frameSize, subPacketSize, sampleRate, channels, codecFourCC, codecExtraData);
+    return new AudioHeader(flavor, subPacketH, frameSize, subPacketSize, sampleRate, channels, deintId, codecFourCC, codecExtraData);
   }
 
   private static int calcAudioMaxInputSize(String fourCC, int flavor, int subPacketSize) {

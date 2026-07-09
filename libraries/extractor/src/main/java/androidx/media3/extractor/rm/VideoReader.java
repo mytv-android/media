@@ -40,6 +40,7 @@ final class VideoReader implements TrackReader {
   private long frameTimestampUs;
   private boolean frameKeyFrame;
   private int lastPicNum = -1;
+  private int parsedNum;
 
   VideoReader(TrackOutput trackOutput) {
     this.trackOutput = trackOutput;
@@ -55,40 +56,67 @@ final class VideoReader implements TrackReader {
 
   @Override
   public void consume(ParsableByteArray data, int dataSize, long timestampUs, boolean isKeyFrame) {
-    if (dataSize < 2) {
-      return;
-    }
     byte[] raw = data.getData();
-    int offset = 0;
+    int offset = data.getPosition();
+    int end = offset + dataSize;
+    long frameTimestampUs = timestampUs;
+    boolean frameIsKeyFrame = isKeyFrame;
+    while (offset < end) {
+      int nextOffset = consumeFrame(raw, offset, end, frameTimestampUs, frameIsKeyFrame);
+      if (nextOffset <= offset) {
+        return;
+      }
+      offset = nextOffset;
+      frameTimestampUs = C.TIME_UNSET;
+      frameIsKeyFrame = false;
+    }
+  }
 
+  private int consumeFrame(byte[] raw, int offset, int end, long timestampUs, boolean isKeyFrame) {
+    int frameStart = offset;
+    if (end - offset < 1) {
+      return frameStart;
+    }
     int hdr = raw[offset++] & 0xFF;
     int type = (hdr >> 6) & 3;
     int sliceHint = hdr & 0x3F;
-    int seq = (type != 3) ? (raw[offset++] & 0xFF) : 0;
-
+    int seq = 0;
+    if (type != 3) {
+      if (offset >= end) {
+        return frameStart;
+      }
+      seq = raw[offset++] & 0xFF;
+    }
     int len2 = 0, pos = 0, picNum = 0;
     if (type != 1) {
-      int[] r;
-      r = readNum(raw, offset, dataSize - offset);
-      len2 = r[0];
-      offset = r[1];
-      r = readNum(raw, offset, dataSize - offset);
-      pos = r[0];
-      offset = r[1];
-      if (offset >= dataSize) {
-        return;
+      offset = readNum(raw, offset, end);
+      if (offset < 0) {
+        return frameStart;
+      }
+      len2 = parsedNum;
+      offset = readNum(raw, offset, end);
+      if (offset < 0) {
+        return frameStart;
+      }
+      pos = parsedNum;
+      if (offset >= end) {
+        return frameStart;
       }
       picNum = raw[offset++] & 0xFF;
     }
-
-    int remaining = dataSize - offset;
+    int remaining = end - offset;
     int payloadLen = remaining;
     if (type == 2) {
       payloadLen = Math.min(remaining, pos);
     } else if (type == 3) {
-      payloadLen = Math.min(remaining, len2);
+      if (remaining < len2) {
+        return frameStart;
+      }
+      payloadLen = len2;
     }
-
+    if (payloadLen <= 0) {
+      return frameStart;
+    }
     if (type == 1) {
       emitSingleSliceFrame(raw, offset, payloadLen, timestampUs, isKeyFrame);
     } else if (type == 3) {
@@ -96,6 +124,7 @@ final class VideoReader implements TrackReader {
     } else {
       handleFragmentedPacket(raw, offset, payloadLen, len2, type, seq, picNum, sliceHint, timestampUs, isKeyFrame);
     }
+    return offset + payloadLen;
   }
 
   private void handleFragmentedPacket(byte[] raw, int offset, int payloadLen, int len2, int type, int seq, int picNum, int sliceHint, long timestampUs, boolean isKeyFrame) {
@@ -113,17 +142,14 @@ final class VideoReader implements TrackReader {
       frameTimestampUs = timestampUs;
       frameKeyFrame = isKeyFrame;
     }
-
     if (frameBuf == null) {
       return;
     }
-
     if (sliceCount >= sliceOffsets.length) {
       sliceOffsets = Arrays.copyOf(sliceOffsets, sliceOffsets.length * 2);
     }
     sliceOffsets[sliceCount] = frameLen;
     sliceCount++;
-
     if (frameLen + payloadLen > frameBuf.length) {
       byte[] grown = new byte[(frameLen + payloadLen) * 2];
       System.arraycopy(frameBuf, 0, grown, 0, frameLen);
@@ -132,7 +158,6 @@ final class VideoReader implements TrackReader {
     System.arraycopy(raw, offset, frameBuf, frameLen, payloadLen);
     frameLen += payloadLen;
     lastPicNum = picNum;
-
     if (type == 2) {
       emitAssembledFrame();
     }
@@ -152,7 +177,6 @@ final class VideoReader implements TrackReader {
     if (frameBuf == null || sliceCount == 0) {
       return;
     }
-
     int headerSize = 1 + 8 * sliceCount;
     byte[] out = new byte[headerSize + frameLen];
     out[0] = (byte) (sliceCount - 1);
@@ -166,11 +190,9 @@ final class VideoReader implements TrackReader {
       out[base + 7] = (byte) ((sliceOff >> 24) & 0xFF);
     }
     System.arraycopy(frameBuf, 0, out, headerSize, frameLen);
-
     ParsableByteArray outputData = new ParsableByteArray(out);
     trackOutput.sampleData(outputData, out.length);
     trackOutput.sampleMetadata(frameTimestampUs, frameKeyFrame ? C.BUFFER_FLAG_KEY_FRAME : 0, out.length, 0, null);
-
     sliceCount = 0;
     frameLen = 0;
   }
@@ -178,22 +200,23 @@ final class VideoReader implements TrackReader {
   /**
    * FFmpeg get_num(): reads 2 bytes masked to 15 bits.
    * If >= 0x4000: 15-bit value. Otherwise: 30-bit value (shift 16 | next 2 bytes).
-   * Returns int[2] = { value, new_offset }.
    */
-  static int[] readNum(byte[] data, int offset, int remaining) {
-    if (remaining < 2) {
-      return new int[]{0, offset};
+  private int readNum(byte[] data, int offset, int end) {
+    if (end - offset < 2) {
+      return -1;
     }
     int n = ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
     offset += 2;
     n &= 0x7FFF;
     if (n >= 0x4000) {
-      return new int[]{n - 0x4000, offset};
+      parsedNum = n - 0x4000;
+      return offset;
     }
-    if (remaining - 2 < 2) {
-      return new int[]{n, offset};
+    if (end - offset < 2) {
+      return -1;
     }
     int n1 = ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
-    return new int[]{(n << 16) | n1, offset + 2};
+    parsedNum = (n << 16) | n1;
+    return offset + 2;
   }
 }
