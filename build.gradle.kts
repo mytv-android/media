@@ -16,6 +16,9 @@ import java.io.File
 import org.gradle.api.tasks.Exec
 
 buildscript {
+  configurations.classpath {
+    resolutionStrategy.force("org.jetbrains:annotations:23.0.0")
+  }
   repositories {
     google()
     mavenCentral()
