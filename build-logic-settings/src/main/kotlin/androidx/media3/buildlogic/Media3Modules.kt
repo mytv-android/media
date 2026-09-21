@@ -183,8 +183,6 @@ object Media3Modules {
           "Media3 Inspector Frame module",
           allowKt = false,
         ),
-      "lib-mpvplayer" to
-        Media3Module("libraries/mpvplayer", "media3-mpvplayer", "Media3 mpv player module"),
       "lib-muxer" to
         Media3Module("libraries/muxer", "media3-muxer", "Media3 Muxer module", allowKt = false),
       "lib-session" to Media3Module("libraries/session", "media3-session", "Media3 Session module"),

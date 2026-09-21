@@ -72,7 +72,6 @@ ktorVersion = "3.0.3"
 leakCanaryVersion = "2.10"
 lottieVersion = "6.6.0"
 mockitoVersion = "3.12.4"
-mockitoMpvplayerVersion = "5.23.0"
 okhttpVersion = "4.12.0"
 playServicesCronetVersion = "18.0.1"
 playServicesTfliteVersion = "16.1.0"
@@ -160,7 +159,6 @@ leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-and
 lottie = { group = "com.airbnb.android", name = "lottie", version.ref = "lottieVersion" }
 material = { group = "com.google.android.material", name = "material", version.ref = "androidxMaterialVersion" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockitoVersion" }
-mockito-mpvplayer = { group = "org.mockito", name = "mockito-core", version.ref = "mockitoMpvplayerVersion" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttpVersion" }
 okhttp-urlconnection = { group = "com.squareup.okhttp3", name = "okhttp-urlconnection", version.ref = "okhttpVersion" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttpVersion" }

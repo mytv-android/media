@@ -36,7 +36,7 @@ if(supported_ffmpeg_abi_index EQUAL -1)
 endif()
 
 foreach(ffmpeg_lib avutil swresample avcodec)
-    set(ffmpeg_lib_filename lib${ffmpeg_lib}.so)
+    set(ffmpeg_lib_filename lib${ffmpeg_lib}.a)
     set(ffmpeg_lib_file_path ${ffmpeg_binaries}/${ffmpeg_lib_filename})
     if(NOT EXISTS "${ffmpeg_lib_file_path}")
         message(FATAL_ERROR
@@ -44,7 +44,7 @@ foreach(ffmpeg_lib avutil swresample avcodec)
     endif()
     add_library(
             ${ffmpeg_lib}
-            SHARED
+            STATIC
             IMPORTED)
     set_target_properties(
             ${ffmpeg_lib} PROPERTIES
@@ -71,10 +71,10 @@ target_link_libraries(ffmpegJNI
                       PRIVATE swresample
                       PRIVATE avcodec
                       PRIVATE avutil
+                      PRIVATE m
                       PRIVATE ${android_log_lib})
 
 target_link_options(ffmpegJNI
-                    PRIVATE "-Wl,-rpath-link,${ffmpeg_binaries}"
                     PRIVATE -pthread)
 
 # Additional flags needed for "arm64-v8a" from NDK 23.1.7779620 and above.

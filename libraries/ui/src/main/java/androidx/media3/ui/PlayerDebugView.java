@@ -24,7 +24,6 @@ import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.Log;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 final class PlayerDebugView {
@@ -34,13 +33,11 @@ final class PlayerDebugView {
   private static final String EXO_PLAYER_CLASS = "androidx.media3.exoplayer.ExoPlayer";
   private static final String EXO_DEBUG_HELPER_CLASS =
       "androidx.media3.exoplayer.util.DebugTextViewHelper";
-  private static final String MPV_TOGGLE_STATS_METHOD = "toggleGeneralStats";
   // LINT.ThenChange(../../../../../../proguard-rules.txt)
 
   @Nullable private static final ExoDebugBridge EXO_DEBUG_BRIDGE = ExoDebugBridge.create();
 
   private final PlayerView playerView;
-  private final MpvDebugBridge mpvDebugBridge;
   @Nullable private DebugTextView exoTextView;
   @Nullable private Object exoHelper;
   @Nullable private Player player;
@@ -48,7 +45,6 @@ final class PlayerDebugView {
 
   PlayerDebugView(PlayerView playerView) {
     this.playerView = playerView;
-    this.mpvDebugBridge = new MpvDebugBridge();
   }
 
   boolean isVisible() {
@@ -99,7 +95,7 @@ final class PlayerDebugView {
     if (bridge != null && bridge.isPlayer(player)) {
       return showExo(bridge, player);
     }
-    return mpvDebugBridge.showStats(player);
+    return false;
   }
 
   private void restoreDebugOutput(Player player) {
@@ -129,7 +125,6 @@ final class PlayerDebugView {
   private void clearDebugOutput() {
     stopExoHelper();
     hideExoTextView();
-    mpvDebugBridge.hideStats();
   }
 
   private void stopExoHelper() {
@@ -239,37 +234,4 @@ final class PlayerDebugView {
     }
   }
 
-  private static final class MpvDebugBridge {
-
-    @Nullable private Player statsPlayer;
-
-    private boolean showStats(Player player) {
-      hideStats();
-      if (!toggleStats(player)) {
-        return false;
-      }
-      statsPlayer = player;
-      return true;
-    }
-
-    private void hideStats() {
-      @Nullable Player player = statsPlayer;
-      statsPlayer = null;
-      if (player != null) {
-        toggleStats(player);
-      }
-    }
-
-    private boolean toggleStats(Player player) {
-      try {
-        Object result = player.getClass().getMethod(MPV_TOGGLE_STATS_METHOD).invoke(player);
-        return result instanceof Boolean && (Boolean) result;
-      } catch (NoSuchMethodException e) {
-        return false;
-      } catch (IllegalAccessException | InvocationTargetException e) {
-        Log.w(TAG, "Unable to toggle mpv stats", e);
-        return false;
-      }
-    }
-  }
 }

@@ -14,7 +14,6 @@ lib-exoplayer-hls-release.aar
 lib-exoplayer-rtsp-release.aar
 lib-exoplayer-smoothstreaming-release.aar
 lib-extractor-release.aar
-lib-mpvplayer-release.aar
 lib-session-release.aar
 lib-ui-release.aar
 lib-ui-danmaku-release.aar

@@ -81,21 +81,6 @@ public final class C {
   /** Represents an unset or unknown percentage. */
   @UnstableApi public static final int PERCENTAGE_UNSET = -1;
 
-  /**
-   * Decode mode for video playback. One of {@link #DECODE_SOFTWARE} or {@link #DECODE_HARDWARE}.
-   */
-  @Documented
-  @Retention(RetentionPolicy.SOURCE)
-  @Target(TYPE_USE)
-  @IntDef({DECODE_SOFTWARE, DECODE_HARDWARE})
-  public @interface DecodeMode {}
-
-  /** Decode video using software decoders. */
-  public static final int DECODE_SOFTWARE = 0;
-
-  /** Decode video using platform hardware decoders. */
-  public static final int DECODE_HARDWARE = 1;
-
   /** The number of milliseconds in one second. */
   @UnstableApi public static final long MILLIS_PER_SECOND = 1_000L;
 
