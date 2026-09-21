@@ -29,7 +29,7 @@ set(decoder_ffmpeg_main "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(ffmpeg_include "${decoder_ffmpeg_main}/ffmpeg/include")
 set(ffmpeg_binaries "${decoder_ffmpeg_main}/jniLibs/${ANDROID_ABI}")
 
-set(supported_ffmpeg_abis "armeabi-v7a" "arm64-v8a")
+set(supported_ffmpeg_abis "armeabi-v7a" "arm64-v8a" "x86" "x86_64")
 list(FIND supported_ffmpeg_abis "${ANDROID_ABI}" supported_ffmpeg_abi_index)
 if(supported_ffmpeg_abi_index EQUAL -1)
     message(FATAL_ERROR "Unsupported FFmpeg ABI: ${ANDROID_ABI}")

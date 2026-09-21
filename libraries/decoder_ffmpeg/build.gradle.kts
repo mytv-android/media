@@ -28,7 +28,9 @@ android {
   namespace = "androidx.media3.decoder.ffmpeg"
   ndkVersion = nativeDependencies.getProperty("android.ndk.version")
 
-  defaultConfig { ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") } }
+  defaultConfig {
+    ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
+  }
 
   sourceSets { getByName("androidTest").assets.directories.add("../test_data/src/test/assets") }
 }
