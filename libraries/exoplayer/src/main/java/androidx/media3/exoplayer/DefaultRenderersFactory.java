@@ -637,36 +637,6 @@ public class DefaultRenderersFactory implements RenderersFactory {
       throw new IllegalStateException("Error instantiating AV1 extension", e);
     }
 
-    try {
-      // LINT.IfChange
-      Class<?> clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegVideoRenderer");
-      // Full class names used for media3 constructor args so the LINT rule triggers if any of them
-      // move.
-      @SuppressWarnings("UnnecessarilyFullyQualified")
-      Constructor<?> constructor =
-          clazz.getConstructor(
-              Context.class,
-              long.class,
-              Handler.class,
-              androidx.media3.exoplayer.video.VideoRendererEventListener.class,
-              int.class);
-      // LINT.ThenChange(../../../../../../proguard-rules.txt)
-      Renderer renderer =
-          (Renderer)
-              constructor.newInstance(
-                  context,
-                  allowedVideoJoiningTimeMs,
-                  eventHandler,
-                  eventListener,
-                  MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY);
-      out.add(extensionRendererIndex++, renderer);
-      Log.i(TAG, "Loaded FfmpegVideoRenderer.");
-    } catch (ClassNotFoundException e) {
-      // Expected if the app was built without the extension.
-    } catch (Exception e) {
-      // The extension is present, but instantiation failed.
-      throw new IllegalStateException("Error instantiating FFmpeg extension", e);
-    }
   }
 
   /**

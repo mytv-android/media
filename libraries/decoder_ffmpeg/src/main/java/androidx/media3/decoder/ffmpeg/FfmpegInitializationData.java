@@ -19,7 +19,6 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.CodecSpecificDataUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -32,17 +31,14 @@ import java.util.List;
   private static final int FLAC_STREAM_INFO_DATA_SIZE = 34;
 
   @Nullable final byte[] extraData;
-  @Nullable final byte[] dolbyVisionConfig;
   final int blockAlign;
   final int bitsPerCodedSample;
 
   private FfmpegInitializationData(
       @Nullable byte[] extraData,
-      @Nullable byte[] dolbyVisionConfig,
       int blockAlign,
       int bitsPerCodedSample) {
     this.extraData = extraData;
-    this.dolbyVisionConfig = dolbyVisionConfig;
     this.blockAlign = blockAlign;
     this.bitsPerCodedSample = bitsPerCodedSample;
   }
@@ -51,17 +47,8 @@ import java.util.List;
     @Nullable String mimeType = format.sampleMimeType;
     return new FfmpegInitializationData(
         getAudioExtraData(mimeType, format.initializationData),
-        /* dolbyVisionConfig= */ null,
         getBlockAlign(mimeType, format.initializationData),
         getPcmBitsPerSample(format.pcmEncoding));
-  }
-
-  static FfmpegInitializationData forVideo(Format format) {
-    return new FfmpegInitializationData(
-        getVideoExtraData(format),
-        CodecSpecificDataUtil.getDolbyVisionCsd(format),
-        /* blockAlign= */ 0,
-        /* bitsPerCodedSample= */ 0);
   }
 
   @Nullable
@@ -92,58 +79,6 @@ import java.util.List;
     }
   }
 
-  @Nullable
-  private static byte[] getVideoExtraData(Format format) {
-    @Nullable String mimeType = format.sampleMimeType;
-    List<byte[]> initializationData = format.initializationData;
-    if (mimeType == null || initializationData.isEmpty()) {
-      return null;
-    }
-    switch (mimeType) {
-      case MimeTypes.VIDEO_H264:
-        // AvcConfig exposes every SPS followed by every PPS as a separate Annex-B entry.
-        return concatAll(initializationData);
-      case MimeTypes.VIDEO_DOLBY_VISION:
-        return getDolbyVisionBaseLayerExtraData(format, initializationData);
-      case MimeTypes.VIDEO_H265:
-      case MimeTypes.VIDEO_RV10:
-      case MimeTypes.VIDEO_RV20:
-      case MimeTypes.VIDEO_RV30:
-      case MimeTypes.VIDEO_RV40:
-        return firstNonEmpty(initializationData);
-      default:
-        return concatAll(initializationData);
-    }
-  }
-
-  @Nullable
-  private static byte[] getDolbyVisionBaseLayerExtraData(
-      Format format, List<byte[]> initializationData) {
-    @Nullable
-    String baseLayerMimeType = CodecSpecificDataUtil.getDolbyVisionBaseLayerMimeType(format);
-    if (baseLayerMimeType == null) {
-      return null;
-    }
-    if (MimeTypes.VIDEO_H264.equals(baseLayerMimeType)
-        || MimeTypes.VIDEO_H265.equals(baseLayerMimeType)) {
-      // Transport-stream Dolby Vision places its configuration record at csd-2. Only Annex-B
-      // parameter sets belong to the base AVC/HEVC decoder.
-      return concatAnnexB(initializationData);
-    }
-    if (MimeTypes.VIDEO_AV1.equals(baseLayerMimeType)) {
-      @Nullable byte[] av1Configuration = firstEntryOrNull(initializationData);
-      return av1Configuration != null && isAv1CodecConfigurationRecord(av1Configuration)
-          ? av1Configuration
-          : null;
-    }
-    return null;
-  }
-
-  private static boolean isAv1CodecConfigurationRecord(byte[] data) {
-    // marker (1) and version (7) from AV1CodecConfigurationRecord. The currently specified
-    // version is 1, and the fixed header occupies four bytes.
-    return data.length >= 4 && (data[0] & 0xFF) == 0x81;
-  }
 
   private static int getBlockAlign(@Nullable String mimeType, List<byte[]> initializationData) {
     if (mimeType == null || initializationData.size() < 2) {
@@ -291,60 +226,6 @@ import java.util.List;
     }
     byte[] data = initializationData.get(0);
     return data.length > 0 ? data : null;
-  }
-
-  @Nullable
-  private static byte[] concatAll(List<byte[]> initializationData) {
-    int size = 0;
-    for (int i = 0; i < initializationData.size(); i++) {
-      int entryLength = initializationData.get(i).length;
-      if (entryLength > Integer.MAX_VALUE - size) {
-        return null;
-      }
-      size += entryLength;
-    }
-    if (size == 0) {
-      return null;
-    }
-    byte[] extraData = new byte[size];
-    ByteBuffer wrapper = ByteBuffer.wrap(extraData);
-    for (int i = 0; i < initializationData.size(); i++) {
-      wrapper.put(initializationData.get(i));
-    }
-    return extraData;
-  }
-
-  @Nullable
-  private static byte[] concatAnnexB(List<byte[]> initializationData) {
-    int size = 0;
-    for (int i = 0; i < initializationData.size(); i++) {
-      byte[] data = initializationData.get(i);
-      if (startsWithAnnexBNalUnit(data)) {
-        if (data.length > Integer.MAX_VALUE - size) {
-          return null;
-        }
-        size += data.length;
-      }
-    }
-    if (size == 0) {
-      return null;
-    }
-    byte[] extraData = new byte[size];
-    ByteBuffer wrapper = ByteBuffer.wrap(extraData);
-    for (int i = 0; i < initializationData.size(); i++) {
-      byte[] data = initializationData.get(i);
-      if (startsWithAnnexBNalUnit(data)) {
-        wrapper.put(data);
-      }
-    }
-    return extraData;
-  }
-
-  private static boolean startsWithAnnexBNalUnit(byte[] data) {
-    return data.length >= 4
-        && data[0] == 0
-        && data[1] == 0
-        && ((data[2] == 1) || (data[2] == 0 && data[3] == 1));
   }
 
   private static boolean arrayStartsWith(byte[] data, byte[] prefix) {

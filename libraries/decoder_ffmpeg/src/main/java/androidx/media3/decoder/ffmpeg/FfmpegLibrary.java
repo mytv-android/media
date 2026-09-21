@@ -15,14 +15,11 @@
  */
 package androidx.media3.decoder.ffmpeg;
 
-import android.media.MediaCodecInfo;
-import android.util.Pair;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.LibraryLoader;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
@@ -38,13 +35,6 @@ public final class FfmpegLibrary {
 
   private static final String TAG = "FfmpegLibrary";
 
-  // LINT.IfChange(dolbyVisionOutputMode)
-  static final int DOLBY_VISION_OUTPUT_MODE_NONE = 0;
-  static final int DOLBY_VISION_OUTPUT_MODE_BASE_LAYER = 1;
-  static final int DOLBY_VISION_OUTPUT_MODE_PREFER_MAPPING = 2;
-  static final int DOLBY_VISION_OUTPUT_MODE_REQUIRE_MAPPING = 3;
-  // LINT.ThenChange(../../../../../jni/ffvideo.cc:dolbyVisionOutputMode)
-
   private static final LibraryLoader LOADER =
       new LibraryLoader("ffmpegJNI") {
         @Override
@@ -52,8 +42,6 @@ public final class FfmpegLibrary {
           System.loadLibrary(name);
         }
       };
-
-  private static @Nullable Boolean videoOutputSupported;
 
   private static @MonotonicNonNull String version;
   private static int inputBufferPaddingSize = C.LENGTH_UNSET;
@@ -63,7 +51,7 @@ public final class FfmpegLibrary {
   /**
    * Override the names of the FFmpeg native libraries. If an application wishes to call this
    * method, it must do so before calling any other method defined by this class, and before
-   * instantiating a {@link FfmpegAudioRenderer} or {@link FfmpegVideoRenderer} instance.
+   * instantiating a {@link FfmpegAudioRenderer} instance.
    *
    * @param libraries The names of the FFmpeg native libraries.
    */
@@ -150,37 +138,6 @@ public final class FfmpegLibrary {
     return supportsCodecName(codecName);
   }
 
-  /**
-   * Returns whether the specified format and current device are eligible for FFmpeg GLES Surface
-   * output.
-   *
-   * <p>This is stricter than {@link #supportsFormat(Format)} because decoding a video codec does
-   * not guarantee that the device can create the required OpenGL ES output contexts. Device
-   * capabilities are probed once here. Persistent direct-render buffers are preferred but not
-   * required; devices without them upload ordinary FFmpeg frames to the same GLES rendering path.
-   * The actual decoded pixel format remains a per-frame property and is validated when the decoder
-   * produces its first frame.
-   *
-   * <p>Dolby Vision formats that are not backward-compatible are eligible because the GLES Surface
-   * path can apply FFmpeg's per-frame RPU mapping metadata after software decoding.
-   */
-  public static boolean supportsVideoOutput(Format format) {
-    if (format.cryptoType != C.CRYPTO_TYPE_NONE
-        || !MimeTypes.isVideo(format.sampleMimeType)
-        || !isAvailable()) {
-      return false;
-    }
-    @Nullable String codecName = getCodecName(format);
-    return supportsCodecName(codecName) && isVideoOutputSupported();
-  }
-
-  private static synchronized boolean isVideoOutputSupported() {
-    if (videoOutputSupported == null) {
-      videoOutputSupported = ffmpegSupportsVideoOutput();
-    }
-    return videoOutputSupported;
-  }
-
   private static boolean supportsCodecName(@Nullable String codecName) {
     if (codecName == null) {
       return false;
@@ -190,51 +147,6 @@ public final class FfmpegLibrary {
       return false;
     }
     return true;
-  }
-
-  /**
-   * Returns how decoded Dolby Vision frames should be presented.
-   *
-   * <p>A proven standard base layer can be presented directly while still preferring RPU mapping
-   * when it is available. A profile without a proven compatible base layer requires valid RPU
-   * mapping so that a non-standard base signal is never presented as SDR or HDR by accident.
-   */
-  static int getDolbyVisionOutputMode(Format format) {
-    if (!MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)) {
-      return DOLBY_VISION_OUTPUT_MODE_NONE;
-    }
-    @Nullable
-    Pair<Integer, Integer> profileAndLevel = CodecSpecificDataUtil.getCodecProfileAndLevel(format);
-    if (profileAndLevel == null) {
-      return DOLBY_VISION_OUTPUT_MODE_NONE;
-    }
-    @Nullable byte[] configuration = CodecSpecificDataUtil.getDolbyVisionCsd(format);
-    boolean hasCompatibleBaseLayer =
-        CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(format) != null;
-    boolean canAttemptMapping =
-        configuration == null || CodecSpecificDataUtil.hasDolbyVisionRpu(format);
-    switch (profileAndLevel.first) {
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr: // Profile 4.
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb: // Profile 7.
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe: // Profile 9.
-        return hasCompatibleBaseLayer
-            ? DOLBY_VISION_OUTPUT_MODE_BASE_LAYER
-            : DOLBY_VISION_OUTPUT_MODE_NONE;
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn: // Profile 5.
-        return canAttemptMapping
-            ? DOLBY_VISION_OUTPUT_MODE_REQUIRE_MAPPING
-            : DOLBY_VISION_OUTPUT_MODE_NONE;
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt: // Profile 8.
-      case MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110: // Profile 10.
-        if (hasCompatibleBaseLayer) {
-          return DOLBY_VISION_OUTPUT_MODE_PREFER_MAPPING;
-        }
-        return canAttemptMapping
-            ? DOLBY_VISION_OUTPUT_MODE_REQUIRE_MAPPING
-            : DOLBY_VISION_OUTPUT_MODE_NONE;
-      default:
-        return DOLBY_VISION_OUTPUT_MODE_NONE;
-    }
   }
 
   /**
@@ -266,12 +178,6 @@ public final class FfmpegLibrary {
         default:
           return null;
       }
-    }
-    if (MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)) {
-      if (getDolbyVisionOutputMode(format) == DOLBY_VISION_OUTPUT_MODE_NONE) {
-        return null;
-      }
-      return getCodecName(CodecSpecificDataUtil.getDolbyVisionBaseLayerMimeType(format));
     }
     return getCodecName(format.sampleMimeType);
   }
@@ -357,50 +263,6 @@ public final class FfmpegLibrary {
         return "wmalossless";
       case MimeTypes.AUDIO_WMA_VOICE:
         return "wmavoice";
-      case MimeTypes.VIDEO_H263:
-        return "h263";
-      case MimeTypes.VIDEO_H264:
-        return "h264";
-      case MimeTypes.VIDEO_H265:
-        return "hevc";
-      case MimeTypes.VIDEO_H266:
-        return "vvc";
-      case MimeTypes.VIDEO_AV1:
-        return "libdav1d";
-      case MimeTypes.VIDEO_APV:
-        return "apv";
-      case MimeTypes.VIDEO_VP8:
-        return "vp8";
-      case MimeTypes.VIDEO_VP9:
-        return "vp9";
-      case MimeTypes.VIDEO_MP4V:
-        return "mpeg4";
-      case MimeTypes.VIDEO_MP43:
-        return "msmpeg4";
-      case MimeTypes.VIDEO_MP42:
-        return "msmpeg4v2";
-      case MimeTypes.VIDEO_MPEG:
-        return "mpeg1video";
-      case MimeTypes.VIDEO_MPEG2:
-        return "mpeg2video";
-      case MimeTypes.VIDEO_MJPEG:
-        return "mjpeg";
-      case MimeTypes.VIDEO_VC1:
-        return "vc1";
-      case MimeTypes.VIDEO_WMV1:
-        return "wmv1";
-      case MimeTypes.VIDEO_WMV2:
-        return "wmv2";
-      case MimeTypes.VIDEO_WMV:
-        return "wmv3";
-      case MimeTypes.VIDEO_RV10:
-        return "rv10";
-      case MimeTypes.VIDEO_RV20:
-        return "rv20";
-      case MimeTypes.VIDEO_RV30:
-        return "rv30";
-      case MimeTypes.VIDEO_RV40:
-        return "rv40";
       default:
         return null;
     }
@@ -411,6 +273,4 @@ public final class FfmpegLibrary {
   private static native int ffmpegGetInputBufferPaddingSize();
 
   private static native boolean ffmpegHasDecoder(String codecName);
-
-  private static native boolean ffmpegSupportsVideoOutput();
 }

@@ -64,41 +64,35 @@ public final class DecodeTrackSelectorTest {
   }
 
   @Test
-  public void selectTracks_hardwareMode_mediaCodecExceedsAndFfmpegHandles_selectsFfmpeg()
-      throws Exception {
+  public void selectTracks_hardwareMode_selectsMediaCodec() throws Exception {
     RendererCapabilities mediaCodecRenderer =
         new FakeRendererCapabilities(
-            "MediaCodecVideoRenderer", C.FORMAT_EXCEEDS_CAPABILITIES);
-    RendererCapabilities ffmpegRenderer =
-        new FakeRendererCapabilities("FfmpegVideoRenderer", C.FORMAT_HANDLED);
+            "MediaCodecVideoRenderer", C.FORMAT_HANDLED);
 
     TrackSelectorResult result =
         trackSelector.selectTracks(
-            new RendererCapabilities[] {mediaCodecRenderer, ffmpegRenderer},
+            new RendererCapabilities[] {mediaCodecRenderer},
             VIDEO_TRACK_GROUPS,
             PERIOD_ID,
             TIMELINE);
 
-    assertThat(result.selections[0]).isNull();
-    assertThat(result.selections[1]).isNotNull();
+    assertThat(result.selections[0]).isNotNull();
   }
 
   @Test
-  public void selectTracks_hardwareMode_bothRenderersHandle_selectsMediaCodec() throws Exception {
+  public void selectTracks_softwareMode_keepsVideoOnMediaCodec() throws Exception {
     RendererCapabilities mediaCodecRenderer =
         new FakeRendererCapabilities("MediaCodecVideoRenderer", C.FORMAT_HANDLED);
-    RendererCapabilities ffmpegRenderer =
-        new FakeRendererCapabilities("FfmpegVideoRenderer", C.FORMAT_HANDLED);
+    trackSelector.setRendererDecodePreferences(C.DECODE_SOFTWARE, C.DECODE_SOFTWARE);
 
     TrackSelectorResult result =
         trackSelector.selectTracks(
-            new RendererCapabilities[] {ffmpegRenderer, mediaCodecRenderer},
+            new RendererCapabilities[] {mediaCodecRenderer},
             VIDEO_TRACK_GROUPS,
             PERIOD_ID,
             TIMELINE);
 
-    assertThat(result.selections[0]).isNull();
-    assertThat(result.selections[1]).isNotNull();
+    assertThat(result.selections[0]).isNotNull();
   }
 
   private static final class FakeRendererCapabilities implements RendererCapabilities {

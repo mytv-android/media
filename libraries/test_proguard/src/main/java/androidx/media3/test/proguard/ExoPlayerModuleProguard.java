@@ -81,17 +81,6 @@ public final class ExoPlayerModuleProguard {
     throw new IllegalStateException();
   }
 
-  /** Creates a FfmpegVideoRenderer with {@link DefaultRenderersFactory}. */
-  public static void createFfmpegVideoRendererWithDefaultRenderersFactory(Context context) {
-    for (Renderer renderer : createDefaultRenderersFactoryRenderers(context)) {
-      // Don't use instanceof to prevent including the class in the apk directly.
-      if ("FfmpegVideoRenderer".equals(renderer.getName())) {
-        return;
-      }
-    }
-    throw new IllegalStateException();
-  }
-
   /** Creates a LibopusAudioRenderer with {@link DefaultRenderersFactory}. */
   public static void createLibopusAudioRendererWithDefaultRenderersFactory(Context context) {
     for (Renderer renderer : createDefaultRenderersFactoryRenderers(context)) {

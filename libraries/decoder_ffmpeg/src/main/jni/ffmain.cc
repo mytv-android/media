@@ -13,7 +13,6 @@ extern "C" {
 }
 
 #include "ffcommon.h"
-#include "ffvideo_surface.h"
 static bool hasExpectedVersion(const char *library, unsigned runtimeVersion,
                                unsigned headerVersion) {
   if (runtimeVersion == headerVersion) {
@@ -63,11 +62,4 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_androidx_media3_decoder_ffmpeg_FfmpegLibrary_ffmpegHasDecoder(
     JNIEnv *env, jclass, jstring codec_name) {
   return getCodecByName(env, codec_name) != nullptr;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_androidx_media3_decoder_ffmpeg_FfmpegLibrary_ffmpegSupportsVideoOutput(
-    JNIEnv *, jclass) {
-  VideoSurfaceRenderer renderer;
-  return renderer.Initialize();
 }

@@ -54,12 +54,6 @@ public final class ExoPlayerModuleProguardTest {
   }
 
   @Test
-  public void defaultRenderersFactory_createFfmpegVideoRenderer_succeeds() {
-    ExoPlayerModuleProguard.createFfmpegVideoRendererWithDefaultRenderersFactory(
-        ApplicationProvider.getApplicationContext());
-  }
-
-  @Test
   public void defaultRenderersFactory_createLibopusAudioRenderer_succeeds() {
     ExoPlayerModuleProguard.createLibopusAudioRendererWithDefaultRenderersFactory(
         ApplicationProvider.getApplicationContext());

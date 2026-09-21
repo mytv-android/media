@@ -35,7 +35,6 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
   private static final String MEDIA_CODEC_AUDIO_RENDERER_NAME = "MediaCodecAudioRenderer";
   private static final String MEDIA_CODEC_VIDEO_RENDERER_NAME = "MediaCodecVideoRenderer";
   private static final String FFMPEG_AUDIO_RENDERER_NAME = "FfmpegAudioRenderer";
-  private static final String FFMPEG_VIDEO_RENDERER_NAME = "FfmpegVideoRenderer";
   private static final RendererDecodePreferences DEFAULT_RENDERER_DECODE_PREFERENCES =
       new RendererDecodePreferences(C.DECODE_HARDWARE, C.DECODE_HARDWARE);
 
@@ -90,8 +89,9 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
   /**
    * Sets decode preferences used when mapping audio and video track groups to renderers.
    *
-   * <p>In hardware mode, FFmpeg remains available as a fallback while platform renderers are
-   * preferred. In software mode, only the corresponding FFmpeg renderer is allowed.
+   * <p>In hardware mode, FFmpeg remains available as an audio fallback while platform renderers
+   * are preferred. Video is always kept on the platform/extension renderer path because this
+   * Media3 fork does not provide an FFmpeg video renderer.
    */
   public final void setRendererDecodePreferences(
       @C.DecodeMode int audioDecode, @C.DecodeMode int videoDecode) {
@@ -108,7 +108,7 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     if (group.type == C.TRACK_TYPE_AUDIO) {
       return isRendererAllowed(rendererCapability, group.type, decodePreferences.audioDecode);
     } else if (group.type == C.TRACK_TYPE_VIDEO) {
-      return isRendererAllowed(rendererCapability, group.type, decodePreferences.videoDecode);
+      return isRendererAllowed(rendererCapability, group.type, C.DECODE_HARDWARE);
     }
     return true;
   }
@@ -129,7 +129,7 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     int decode =
         group.type == C.TRACK_TYPE_AUDIO
             ? decodePreferences.audioDecode
-            : decodePreferences.videoDecode;
+            : C.DECODE_HARDWARE;
     if (decode == C.DECODE_HARDWARE) {
       return isMediaCodecRenderer(rendererCapability, group.type)
           && formatSupportLevel == C.FORMAT_HANDLED;
@@ -163,8 +163,6 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     String name = rendererCapability.getName();
     if (trackType == C.TRACK_TYPE_AUDIO) {
       return FFMPEG_AUDIO_RENDERER_NAME.equals(name);
-    } else if (trackType == C.TRACK_TYPE_VIDEO) {
-      return FFMPEG_VIDEO_RENDERER_NAME.equals(name);
     }
     return false;
   }
