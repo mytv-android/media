@@ -17,7 +17,7 @@ import org.gradle.api.tasks.Exec
 
 buildscript {
   configurations.classpath {
-    resolutionStrategy.force("org.jetbrains:annotations:23.0.0")
+    resolutionStrategy.force("org.jetbrains:annotations:26.1.0")
   }
   repositories {
     google()
