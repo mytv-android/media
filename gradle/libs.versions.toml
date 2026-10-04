@@ -2,7 +2,7 @@
 releaseVersion = "1.11.0"
 releaseVersionCode = "1011000300"
 # SDK
-compileSdkVersion = "36"
+compileSdkVersion = "37"
 appTargetSdkVersion = "34"
 minSdkVersion = "23"
 libTestTargetSdkVersion = "36"
