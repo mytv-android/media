@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <string>
 
 #include "ffcommon.h"
 
@@ -14,7 +13,6 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
-#include <libavutil/mem.h>
 #include <libswresample/swresample.h>
 }
 
@@ -139,19 +137,6 @@ static void updateOutputTiming(AudioJniContext *context, int outputSize,
       outputTimeUs + av_rescale_q(sampleCount,
                                   AVRational{1, context->outputSampleRate},
                                   AV_TIME_BASE_Q);
-}
-
-static std::string av3aModelPath;
-
-extern "C" JNIEXPORT void JNICALL
-Java_androidx_media3_decoder_ffmpeg_FfmpegLibrary_ffmpegSetAv3aModelPath(
-    JNIEnv *env, jclass, jstring model_path) {
-  const char *path = model_path ? env->GetStringUTFChars(model_path, nullptr)
-                                : nullptr;
-  av3aModelPath = path ? path : "";
-  if (path) {
-    env->ReleaseStringUTFChars(model_path, path);
-  }
 }
 
 static int computeDsdTargetSampleRate(int rawSampleRate) {
@@ -352,9 +337,6 @@ static AVCodecContext *createContext(JNIEnv *env, const AVCodec *codec,
 
   if (config.rawBitRate > 0) {
     context->bit_rate = config.rawBitRate;
-  }
-  if (context->codec_id == AV_CODEC_ID_AV3A && !av3aModelPath.empty()) {
-    context->av3a_model_path = av_strdup(av3aModelPath.c_str());
   }
   context->pkt_timebase = AV_TIME_BASE_Q;
   int result = avcodec_open2(context, codec, nullptr);
