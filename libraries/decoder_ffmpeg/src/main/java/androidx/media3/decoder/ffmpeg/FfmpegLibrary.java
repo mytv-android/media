@@ -228,7 +228,7 @@ public final class FfmpegLibrary {
       case MimeTypes.AUDIO_ALAC:
         return "alac";
       case MimeTypes.AUDIO_AV3A:
-        return "libarcdav3a";
+        return "av3a";
       case MimeTypes.AUDIO_MLAW:
         return "pcm_mulaw";
       case MimeTypes.AUDIO_ALAW:
@@ -273,4 +273,17 @@ public final class FfmpegLibrary {
   private static native int ffmpegGetInputBufferPaddingSize();
 
   private static native boolean ffmpegHasDecoder(String codecName);
+
+  private static native void ffmpegSetAv3aModelPath(@Nullable String modelPath);
+
+  /**
+   * 设置 AV3A 解码器的神经网络模型文件路径。解码器在 {@code avcodec_open2} 时读取，须在首帧解码前调用。传 {@code null}
+   * 表示不设置。
+   */
+  public static void setAv3aModelPath(@Nullable String modelPath) {
+    if (!isAvailable()) {
+      return;
+    }
+    ffmpegSetAv3aModelPath(modelPath);
+  }
 }
