@@ -1883,6 +1883,11 @@ typedef struct AVCodecContext {
     int64_t frame_num;
 
     /**
+     * AV3A model path
+     */
+    char *av3a_model_path;
+
+    /**
      * Decoding only. May be set by the caller before avcodec_open2() to an
      * av_malloc()'ed array (or via AVOptions). Owned and freed by the decoder
      * afterwards.
