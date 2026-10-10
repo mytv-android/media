@@ -2880,6 +2880,18 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     MediaFormatUtil.setCsdBuffers(mediaFormat, format.initializationData);
     // Set format parameters that may be unset.
     MediaFormatUtil.maybeSetFloat(mediaFormat, MediaFormat.KEY_FRAME_RATE, format.frameRate);
+    // 流没解析出帧率时按设备国家的广播电视制式补上。部分盒子的 Codec2 在缺少
+    // KEY_FRAME_RATE 时按 30fps 默认，1080i 去隔行合场对不上 25 帧的场序就会错帧卡顿。
+    if (format.frameRate == Format.NO_VALUE) {
+      float fallbackFrameRate =
+          BroadcastFrameRateFallback.frameRateFor(java.util.Locale.getDefault().getCountry());
+      if (fallbackFrameRate > 0) {
+        mediaFormat.setFloat(MediaFormat.KEY_FRAME_RATE, fallbackFrameRate);
+        Log.i(
+            TAG,
+            "流未给出帧率，按广播电视制式补 " + fallbackFrameRate + " fps");
+      }
+    }
     MediaFormatUtil.maybeSetInteger(mediaFormat, MediaFormat.KEY_ROTATION, format.rotationDegrees);
     MediaFormatUtil.maybeSetColorInfo(mediaFormat, format.colorInfo);
     if (MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)) {
