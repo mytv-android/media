@@ -71,6 +71,11 @@ const AVCodec* getCodecByName(JNIEnv* env, jstring codecName);
 bool setCodecExtraData(JNIEnv* env, jbyteArray extraData,
                        AVCodecContext* codecContext);
 
+/**
+ * Outputs a log message describing the avcodec error number.
+ */
+void logError(const char* functionName, int errorNumber);
+
 struct ResampleState {
   SwrContext *context{};
   AVSampleFormat inFormat = AV_SAMPLE_FMT_NONE;
