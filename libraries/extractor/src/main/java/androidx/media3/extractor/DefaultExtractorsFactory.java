@@ -178,6 +178,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   private @C.VideoCodecFlags int codecsToParseWithinGopSampleDependencies;
   private @JpegExtractor.Flags int jpegFlags;
   private @HeifExtractor.Flags int heifFlags;
+  private boolean parseHagcMetadata;
 
   public DefaultExtractorsFactory() {
     tsMode = TsExtractor.MODE_SINGLE_PMT;
@@ -185,6 +186,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
     subtitleParserFactory = DefaultSubtitleParserFactory.createForExtraction();
     textTrackTranscodingEnabled = true;
     codecsToParseWithinGopSampleDependencies = C.VIDEO_CODEC_FLAG_H264 | C.VIDEO_CODEC_FLAG_H265;
+    parseHagcMetadata = true;
   }
 
   /**
@@ -464,6 +466,13 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
     return this;
   }
 
+  @CanIgnoreReturnValue
+  @Override
+  public synchronized DefaultExtractorsFactory setParseHagcMetadata(boolean parseHagcMetadata) {
+    this.parseHagcMetadata = parseHagcMetadata;
+    return this;
+  }
+
   @Override
   public synchronized Extractor[] createExtractors() {
     return createExtractors(Uri.EMPTY, new HashMap<>());
@@ -545,7 +554,8 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
                 matroskaFlags
                     | (textTrackTranscodingEnabled
                         ? 0
-                        : MatroskaExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA)));
+                        : MatroskaExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA)
+                    | (parseHagcMetadata ? 0 : MatroskaExtractor.FLAG_DISABLE_HAGC_METADATA)));
         break;
       case FileTypes.MP3:
         extractors.add(
@@ -572,7 +582,8 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
                         : FragmentedMp4Extractor.FLAG_EMIT_RAW_SUBTITLE_DATA)
                     | (disableArtworkMetadata
                         ? FragmentedMp4Extractor.FLAG_DISABLE_ARTWORK_METADATA
-                        : 0)));
+                        : 0)
+                    | (parseHagcMetadata ? 0 : FragmentedMp4Extractor.FLAG_DISABLE_HAGC_METADATA)));
         extractors.add(
             new Mp4Extractor(
                 subtitleParserFactory,
@@ -580,7 +591,8 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
                     | Mp4Extractor.codecsToParseWithinGopSampleDependenciesAsFlags(
                         codecsToParseWithinGopSampleDependencies)
                     | (textTrackTranscodingEnabled ? 0 : Mp4Extractor.FLAG_EMIT_RAW_SUBTITLE_DATA)
-                    | (disableArtworkMetadata ? Mp4Extractor.FLAG_DISABLE_ARTWORK_METADATA : 0)));
+                    | (disableArtworkMetadata ? Mp4Extractor.FLAG_DISABLE_ARTWORK_METADATA : 0)
+                    | (parseHagcMetadata ? 0 : Mp4Extractor.FLAG_DISABLE_HAGC_METADATA)));
         break;
       case FileTypes.OGG:
         extractors.add(new OggExtractor());

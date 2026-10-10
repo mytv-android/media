@@ -66,6 +66,10 @@ target_include_directories(ffmpegJNI
 target_compile_options(ffmpegJNI
                        PRIVATE -Wall -Wextra -pthread)
 
+set_target_properties(ffmpegJNI PROPERTIES
+                      CXX_VISIBILITY_PRESET hidden
+                      VISIBILITY_INLINES_HIDDEN ON)
+
 target_link_libraries(ffmpegJNI
                       PRIVATE android
                       PRIVATE swresample
