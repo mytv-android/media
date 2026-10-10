@@ -56,9 +56,7 @@ find_library(android_log_lib log)
 
 add_library(ffmpegJNI
             SHARED
-            ffmain.cc
-            ffcommon.cc
-            ffaudio.cc)
+            ffmpeg_jni.cc)
 
 target_include_directories(ffmpegJNI
                            PRIVATE ${ffmpeg_include})

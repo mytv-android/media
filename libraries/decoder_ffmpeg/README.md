@@ -125,7 +125,7 @@ then implement your own logic to use the renderer for a given track.
 [Ninja]: https://ninja-build.org/
 [Install CMake]: https://developer.android.com/studio/projects/install-ndk
 [CMake]: https://cmake.org/
-[JNI wrapper library]: src/main/jni/ffmain.cc
+[JNI wrapper library]: src/main/jni/ffmpeg_jni.cc
 [ExoPlayer issue 2781]: https://github.com/google/ExoPlayer/issues/2781
 [Supported formats]: https://developer.android.com/media/media3/exoplayer/supported-formats#ffmpeg-library
 
