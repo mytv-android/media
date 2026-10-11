@@ -82,9 +82,10 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
   public static final int FLAG_IGNORE_H264_STREAM = 1 << 2;
 
   /**
-   * Whether to split the input stream into access units (samples) based on slice headers. This
-   * implementation always detects access units, so the flag has no additional effect and is
-   * accepted for compatibility with the 1.10 line's flag values.
+   * When extracting H.264 samples, whether to split the input stream into access units (samples)
+   * at the first VCL NAL unit of each picture, even when the stream contains access unit
+   * delimiters (AUDs). Pass {@code true} together with {@link #FLAG_ALLOW_NON_IDR_KEYFRAMES} for
+   * the 1.10 line's "better detection" behavior.
    */
   public static final int FLAG_DETECT_ACCESS_UNITS = 1 << 3;
 

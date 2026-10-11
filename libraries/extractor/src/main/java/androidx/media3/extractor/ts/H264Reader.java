@@ -49,6 +49,7 @@ public final class H264Reader implements ElementaryStreamReader {
 
   private final SeiReader seiReader;
   private final boolean allowNonIdrKeyframes;
+  private final boolean detectAccessUnits;
   private final String containerMimeType;
   private final NalUnitTargetBuffer sps;
   private final NalUnitTargetBuffer pps;
@@ -90,9 +91,9 @@ public final class H264Reader implements ElementaryStreamReader {
    *     synchronization samples (key-frames). When {@code false}, only IDR samples and samples
    *     signalled as random access points (immediate recovery point SEI or the TS packet's
    *     random_access_indicator) are treated as key-frames.
-   * @param detectAccessUnits Whether to split the input stream into access units (samples) based on
-   *     slice headers. This implementation always detects access units, so the parameter has no
-   *     additional effect and is accepted for compatibility with the 1.10 line's flag values.
+   * @param detectAccessUnits Whether to split samples at the first VCL NAL unit of each picture
+   *     even when an access unit delimiter (AUD) already started the sample. When {@code false},
+   *     the AUD stays in the sample of the picture it precedes.
    * @param containerMimeType The MIME type of the container holding the stream.
    */
   public H264Reader(
@@ -102,6 +103,7 @@ public final class H264Reader implements ElementaryStreamReader {
       String containerMimeType) {
     this.seiReader = seiReader;
     this.allowNonIdrKeyframes = allowNonIdrKeyframes;
+    this.detectAccessUnits = detectAccessUnits;
     this.containerMimeType = containerMimeType;
     prefixFlags = new boolean[3];
     sps = new NalUnitTargetBuffer(NalUnitUtil.H264_NAL_UNIT_TYPE_SPS, 128);
@@ -131,7 +133,7 @@ public final class H264Reader implements ElementaryStreamReader {
     idGenerator.generateNewId();
     formatId = idGenerator.getFormatId();
     output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_VIDEO);
-    sampleReader = new SampleReader(output, allowNonIdrKeyframes);
+    sampleReader = new SampleReader(output, allowNonIdrKeyframes, detectAccessUnits);
     seiReader.createTracks(extractorOutput, idGenerator);
   }
 
@@ -344,6 +346,7 @@ public final class H264Reader implements ElementaryStreamReader {
 
     private final TrackOutput output;
     private final boolean allowNonIdrKeyframes;
+    private final boolean detectAccessUnits;
     private final SparseArray<NalUnitUtil.SpsData> sps;
     private final SparseArray<NalUnitUtil.PpsData> pps;
     private final ParsableNalUnitBitArray bitArray;
@@ -368,9 +371,10 @@ public final class H264Reader implements ElementaryStreamReader {
     private boolean sampleIsKeyframe;
     private boolean randomAccessIndicator;
 
-    public SampleReader(TrackOutput output, boolean allowNonIdrKeyframes) {
+    public SampleReader(TrackOutput output, boolean allowNonIdrKeyframes, boolean detectAccessUnits) {
       this.output = output;
       this.allowNonIdrKeyframes = allowNonIdrKeyframes;
+      this.detectAccessUnits = detectAccessUnits;
       sps = new SparseArray<>();
       pps = new SparseArray<>();
       previousSliceHeader = new SliceHeaderData();
@@ -552,7 +556,7 @@ public final class H264Reader implements ElementaryStreamReader {
       boolean isVcl = isVclNalUnit(nalUnitType);
       boolean isFirstVclOfPicture =
           isVcl && sliceHeader.isFirstVclNalUnitOfPicture(previousSliceHeader);
-      if (isAud || (isFirstVclOfPicture && !audPendingForVcl)) {
+      if (isAud || (isFirstVclOfPicture && (!audPendingForVcl || detectAccessUnits))) {
         // If the NAL unit ending is the start of a new sample, output the previous one.
         if (hasOutputFormat && readingSample) {
           int nalUnitLength = (int) (position - nalUnitStartPosition);
