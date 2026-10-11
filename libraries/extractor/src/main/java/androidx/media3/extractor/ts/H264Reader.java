@@ -48,6 +48,7 @@ public final class H264Reader implements ElementaryStreamReader {
   private static final int SEI_PAYLOAD_TYPE_RECOVERY_POINT = 6;
 
   private final SeiReader seiReader;
+  private final boolean allowNonIdrKeyframes;
   private final String containerMimeType;
   private final NalUnitTargetBuffer sps;
   private final NalUnitTargetBuffer pps;
@@ -76,7 +77,31 @@ public final class H264Reader implements ElementaryStreamReader {
    * @param containerMimeType The MIME type of the container holding the stream.
    */
   public H264Reader(SeiReader seiReader, String containerMimeType) {
+    this(
+        seiReader,
+        /* allowNonIdrKeyframes= */ false,
+        /* detectAccessUnits= */ false,
+        containerMimeType);
+  }
+
+  /**
+   * @param seiReader An SEI reader for consuming closed caption channels.
+   * @param allowNonIdrKeyframes Whether to treat samples consisting of non-IDR I slices as
+   *     synchronization samples (key-frames). When {@code false}, only IDR samples and samples
+   *     signalled as random access points (immediate recovery point SEI or the TS packet's
+   *     random_access_indicator) are treated as key-frames.
+   * @param detectAccessUnits Whether to split the input stream into access units (samples) based on
+   *     slice headers. This implementation always detects access units, so the parameter has no
+   *     additional effect and is accepted for compatibility with the 1.10 line's flag values.
+   * @param containerMimeType The MIME type of the container holding the stream.
+   */
+  public H264Reader(
+      SeiReader seiReader,
+      boolean allowNonIdrKeyframes,
+      boolean detectAccessUnits,
+      String containerMimeType) {
     this.seiReader = seiReader;
+    this.allowNonIdrKeyframes = allowNonIdrKeyframes;
     this.containerMimeType = containerMimeType;
     prefixFlags = new boolean[3];
     sps = new NalUnitTargetBuffer(NalUnitUtil.H264_NAL_UNIT_TYPE_SPS, 128);
@@ -106,7 +131,7 @@ public final class H264Reader implements ElementaryStreamReader {
     idGenerator.generateNewId();
     formatId = idGenerator.getFormatId();
     output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_VIDEO);
-    sampleReader = new SampleReader(output);
+    sampleReader = new SampleReader(output, allowNonIdrKeyframes);
     seiReader.createTracks(extractorOutput, idGenerator);
   }
 
@@ -318,6 +343,7 @@ public final class H264Reader implements ElementaryStreamReader {
     private static final int DEFAULT_BUFFER_SIZE = 128;
 
     private final TrackOutput output;
+    private final boolean allowNonIdrKeyframes;
     private final SparseArray<NalUnitUtil.SpsData> sps;
     private final SparseArray<NalUnitUtil.PpsData> pps;
     private final ParsableNalUnitBitArray bitArray;
@@ -342,8 +368,9 @@ public final class H264Reader implements ElementaryStreamReader {
     private boolean sampleIsKeyframe;
     private boolean randomAccessIndicator;
 
-    public SampleReader(TrackOutput output) {
+    public SampleReader(TrackOutput output, boolean allowNonIdrKeyframes) {
       this.output = output;
+      this.allowNonIdrKeyframes = allowNonIdrKeyframes;
       sps = new SparseArray<>();
       pps = new SparseArray<>();
       previousSliceHeader = new SliceHeaderData();
@@ -555,7 +582,9 @@ public final class H264Reader implements ElementaryStreamReader {
 
     private void updateSampleIsKeyframe() {
       boolean treatIFrameAsKeyframe =
-          randomAccessIndicator || sliceHeader.isIFrameWithFewReferences();
+          allowNonIdrKeyframes
+              ? sliceHeader.isISlice()
+              : (randomAccessIndicator || sliceHeader.isIFrameWithFewReferences());
       sampleIsKeyframe |=
           nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_IDR
               || ((recoveryPointPending || treatIFrameAsKeyframe)
