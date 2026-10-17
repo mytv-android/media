@@ -153,6 +153,7 @@ struct AudioJniContext {
   AudioCodecConfig config;
   ResampleState resampler;
   int targetSampleRate = 0;
+  int maxOutputChannelCount = 0;
   int outputChannelCount = 0;
   int outputSampleRate = 0;
   int64_t lastOutputTimeUs = AV_NOPTS_VALUE;
@@ -399,7 +400,7 @@ jlong ffmpegInitialize(JNIEnv *env, jobject thiz, jstring codecName,
                        jbyteArray extraData, jboolean outputFloat,
                        jint rawSampleRate, jint rawChannelCount,
                        jint rawBlockAlign, jint rawBitsPerCodedSample,
-                       jint rawBitRate) {
+                       jint rawBitRate, jint maxOutputChannelCount) {
   const AVCodec *codec = getCodecByName(env, codecName);
   if (!codec) {
     LOGE("Codec not found.");
@@ -410,6 +411,8 @@ jlong ffmpegInitialize(JNIEnv *env, jobject thiz, jstring codecName,
                                    rawBitsPerCodedSample,   rawBitRate};
   auto jniContext = std::make_unique<AudioJniContext>();
   jniContext->config = config;
+  jniContext->maxOutputChannelCount =
+      maxOutputChannelCount > 0 ? maxOutputChannelCount : 0;
   jniContext->codecContext = createContext(env, codec, extraData, config);
   if (!jniContext->codecContext) {
     return 0L;
@@ -699,6 +702,54 @@ static int transformError(int errorNumber) {
                                             : AUDIO_DECODER_ERROR_OTHER;
 }
 
+/**
+ * Selects a device-friendly output layout when the AV3A source has more
+ * channels than the output device can play. Returns false when no downmix is
+ * needed or possible.
+ */
+static bool selectDownmixLayout(AVCodecID codecId, int sourceChannelCount,
+                                int maxOutputChannelCount,
+                                AVChannelLayout *outputLayout) {
+  if (codecId != AV_CODEC_ID_AV3A || maxOutputChannelCount <= 0 ||
+      sourceChannelCount <= maxOutputChannelCount) {
+    return false;
+  }
+  static const int kCandidateChannels[] = {12, 10, 8, 6, 2, 1};
+  for (int candidate : kCandidateChannels) {
+    if (candidate > maxOutputChannelCount ||
+        candidate >= sourceChannelCount) {
+      continue;
+    }
+    uint64_t mask = 0;
+    switch (candidate) {
+      case 12:
+        mask = AV_CH_LAYOUT_7POINT1POINT4_BACK;
+        break;
+      case 10:
+        mask = AV_CH_LAYOUT_5POINT1POINT4_BACK;
+        break;
+      case 8:
+        mask = AV_CH_LAYOUT_7POINT1;
+        break;
+      case 6:
+        mask = AV_CH_LAYOUT_5POINT1_BACK;
+        break;
+      case 2:
+        mask = AV_CH_LAYOUT_STEREO;
+        break;
+      case 1:
+        mask = AV_CH_LAYOUT_MONO;
+        break;
+      default:
+        continue;
+    }
+    if (av_channel_layout_from_mask(outputLayout, mask) >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static int decodePacket(AudioJniContext *jniContext, AVPacket *packet,
                         bool sendPacket, int64_t fallbackTimeUs,
                         AudioOutputBufferWriter &output,
@@ -782,11 +833,21 @@ static int decodePacket(AudioJniContext *jniContext, AVPacket *packet,
           sampleFormat, channelCount, sampleRate, sampleCount);
       return AUDIO_DECODER_ERROR_OTHER;
     }
-    jniContext->outputChannelCount = channelCount;
+    AVChannelLayout downmixLayout{};
+    const AVChannelLayout *outputLayout = channelLayout;
+    int outputChannelCount = channelCount;
+    if (selectDownmixLayout(context->codec_id, channelCount,
+                            jniContext->maxOutputChannelCount,
+                            &downmixLayout)) {
+      outputLayout = &downmixLayout;
+      outputChannelCount = downmixLayout.nb_channels;
+    }
+    jniContext->outputChannelCount = outputChannelCount;
     jniContext->outputSampleRate = outSampleRate;
 
     if (!av_sample_fmt_is_planar(sampleFormat) &&
         sampleFormat == context->request_sample_fmt &&
+        outputChannelCount == channelCount &&
         (jniContext->targetSampleRate == 0 ||
          jniContext->targetSampleRate == sampleRate)) {
       int dataSize = av_samples_get_buffer_size(nullptr, channelCount,
@@ -801,10 +862,14 @@ static int decodePacket(AudioJniContext *jniContext, AVPacket *packet,
       continue;
     }
     AVSampleFormat outputFormat = context->request_sample_fmt;
-    if (!jniContext->resampler.matches(channelLayout, channelLayout,
+    if (!jniContext->resampler.matches(channelLayout, outputLayout,
                                        sampleFormat, outputFormat, sampleRate,
                                        outSampleRate)) {
-      result = jniContext->resampler.configure(channelLayout, channelLayout,
+      if (outputChannelCount != channelCount) {
+        LOGD("AV3A downmix: %d -> %d channels", channelCount,
+             outputChannelCount);
+      }
+      result = jniContext->resampler.configure(channelLayout, outputLayout,
                                                sampleFormat, outputFormat,
                                                sampleRate, outSampleRate);
       if (result < 0) {
@@ -817,11 +882,11 @@ static int decodePacket(AudioJniContext *jniContext, AVPacket *packet,
     int outSamples = swr_get_out_samples(resampleContext, sampleCount);
     if (outSampleSize <= 0 || outSamples < 0) {
       LOGE("Invalid resample sizing: sampleSize=%d channels=%d samples=%d.",
-           outSampleSize, channelCount, outSamples);
+           outSampleSize, outputChannelCount, outSamples);
       return AUDIO_DECODER_ERROR_OTHER;
     }
     int64_t bufferOutSize64 =
-        static_cast<int64_t>(outSampleSize) * channelCount * outSamples;
+        static_cast<int64_t>(outSampleSize) * outputChannelCount * outSamples;
     if (bufferOutSize64 > INT_MAX) {
       LOGE("Resample output buffer too large: %lld.",
            (long long)bufferOutSize64);
@@ -839,11 +904,12 @@ static int decodePacket(AudioJniContext *jniContext, AVPacket *packet,
     }
 
     const int64_t writtenSize =
-        static_cast<int64_t>(outSampleSize) * channelCount * result;
+        static_cast<int64_t>(outSampleSize) * outputChannelCount * result;
     if (writtenSize > INT_MAX ||
         !output.commit(static_cast<int>(writtenSize))) {
       return AUDIO_DECODER_ERROR_OTHER;
     }
+    av_channel_layout_uninit(&downmixLayout);
   }
   ResampleState &resampler = jniContext->resampler;
   if (draining && status.decoderEof && resampler.context) {
@@ -934,7 +1000,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     return -1;
   }
   static const JNINativeMethod kFfmpegAudioDecoderMethods[] = {
-      {"ffmpegInitialize", "(Ljava/lang/String;[BZIIIII)J",
+      {"ffmpegInitialize", "(Ljava/lang/String;[BZIIIIII)J",
        reinterpret_cast<void*>(ffmpegInitialize)},
       {"ffmpegDecode",
        "(JLjava/nio/ByteBuffer;IIJLandroidx/media3/decoder/"

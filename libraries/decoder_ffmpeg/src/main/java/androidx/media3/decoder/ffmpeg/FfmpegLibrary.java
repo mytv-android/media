@@ -45,6 +45,7 @@ public final class FfmpegLibrary {
 
   private static @MonotonicNonNull String version;
   private static int inputBufferPaddingSize = C.LENGTH_UNSET;
+  private static volatile int av3aMaxOutputChannelCount;
 
   private FfmpegLibrary() {}
 
@@ -285,5 +286,18 @@ public final class FfmpegLibrary {
       return;
     }
     ffmpegSetAv3aModelPath(modelPath);
+  }
+
+  /**
+   * 设置 AV3A 解码器输出的最大声道数（0 表示不限制）。超出设备能力的多声道 AV3A 会在解码层下混到不超过该值的布局。
+   * 须在解码器初始化前调用。
+   */
+  public static void setAv3aMaxOutputChannelCount(int channelCount) {
+    av3aMaxOutputChannelCount = Math.max(0, channelCount);
+  }
+
+  /** 返回 AV3A 解码器输出的最大声道数，0 表示不限制。 */
+  public static int getAv3aMaxOutputChannelCount() {
+    return av3aMaxOutputChannelCount;
   }
 }

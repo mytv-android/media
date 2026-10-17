@@ -79,7 +79,8 @@ public final class FfmpegAudioDecoder
               format.channelCount,
               initializationData.blockAlign,
               initializationData.bitsPerCodedSample,
-              format.averageBitrate);
+              format.averageBitrate,
+              FfmpegLibrary.getAv3aMaxOutputChannelCount());
       if (nativeContext == 0) {
         throw new FfmpegDecoderException("Initialization failed.");
       }
@@ -256,7 +257,8 @@ public final class FfmpegAudioDecoder
       int rawChannelCount,
       int rawBlockAlign,
       int rawBitsPerCodedSample,
-      int rawBitRate);
+      int rawBitRate,
+      int maxOutputChannelCount);
 
   private native int ffmpegDecode(
       long context,
