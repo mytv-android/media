@@ -49,6 +49,7 @@ public final class MimeTypes {
   @UnstableApi public static final String VIDEO_APV = BASE_TYPE_VIDEO + "/apv";
   public static final String VIDEO_H265 = BASE_TYPE_VIDEO + "/hevc";
   @UnstableApi public static final String VIDEO_H266 = BASE_TYPE_VIDEO + "/vvc";
+  @UnstableApi public static final String VIDEO_AVS3 = BASE_TYPE_VIDEO + "/avs3";
   @UnstableApi public static final String VIDEO_VP8 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp8";
   @UnstableApi public static final String VIDEO_VP9 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp9";
   public static final String VIDEO_AV1 = BASE_TYPE_VIDEO + "/av01";
@@ -521,6 +522,8 @@ public final class MimeTypes {
       return MimeTypes.VIDEO_H265;
     } else if (codec.startsWith("vvc1") || codec.startsWith("vvi1")) {
       return MimeTypes.VIDEO_H266;
+    } else if (codec.startsWith("avs3")) {
+      return MimeTypes.VIDEO_AVS3;
     } else if (codec.startsWith("dvav")
         || codec.startsWith("dva1")
         || codec.startsWith("dvhe")

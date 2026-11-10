@@ -131,6 +131,8 @@ public final class FormatNameUtil {
         return "APV";
       case MimeTypes.VIDEO_AV1:
         return joinWithSeparator("AV1", getHdrDisplayName(format));
+      case MimeTypes.VIDEO_AVS3:
+        return "AVS3";
       case MimeTypes.VIDEO_AVI:
         return "AVI";
       case MimeTypes.VIDEO_DIVX:
