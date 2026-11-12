@@ -127,6 +127,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
   private boolean enableMediaCodecVideoRendererPrewarming;
   private boolean parseAv1SampleDependencies;
   private long lateThresholdToDropDecoderInputUs;
+  private boolean expandCodecMaxSizeForSingleFormat;
   private long videoRendererEarlySchedulingThresholdUs;
   private boolean enableMediaCodecBufferDecodeOnlyFlag;
   private boolean enableMediaCodecVideoRendererDurationToProgressUs;
@@ -143,6 +144,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
     mediaCodecSelector = MediaCodecSelector.DEFAULT;
     parseAv1SampleDependencies = true;
     lateThresholdToDropDecoderInputUs = DEFAULT_LATE_THRESHOLD_TO_DROP_DECODER_INPUT_US;
+    expandCodecMaxSizeForSingleFormat = false;
     videoRendererEarlySchedulingThresholdUs = DEFAULT_EARLY_SCHEDULING_THRESHOLD_US;
     dolbyVisionOutputPolicy = DolbyVisionOutputPolicy.AUTO;
   }
@@ -441,6 +443,22 @@ public class DefaultRenderersFactory implements RenderersFactory {
   }
 
   /**
+   * Sets whether {@link MediaCodecVideoRenderer} raises the codec maximum size of single-format
+   * streams to the next standard resolution the codec supports, so that switching to a
+   * higher-resolution source of the same codec can keep the decoder instance.
+   *
+   * <p>The default value is {@code false}.
+   *
+   * @param expandCodecMaxSizeForSingleFormat Whether to raise the codec maximum size.
+   */
+  @CanIgnoreReturnValue
+  public final DefaultRenderersFactory setExpandCodecMaxSizeForSingleFormat(
+      boolean expandCodecMaxSizeForSingleFormat) {
+    this.expandCodecMaxSizeForSingleFormat = expandCodecMaxSizeForSingleFormat;
+    return this;
+  }
+
+  /**
    * Sets the threshold for how early {@link MediaCodecVideoRenderer} will schedule a frame for
    * release on the surface.
    *
@@ -528,6 +546,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
             .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
             .experimentalSetParseAv1SampleDependencies(parseAv1SampleDependencies)
             .experimentalSetLateThresholdToDropDecoderInputUs(lateThresholdToDropDecoderInputUs)
+            .setExpandCodecMaxSizeForSingleFormat(expandCodecMaxSizeForSingleFormat)
             .setEnableDurationToProgressUs(enableMediaCodecVideoRendererDurationToProgressUs)
             .setEarlySchedulingThresholdUs(videoRendererEarlySchedulingThresholdUs);
     if (SDK_INT >= 34) {

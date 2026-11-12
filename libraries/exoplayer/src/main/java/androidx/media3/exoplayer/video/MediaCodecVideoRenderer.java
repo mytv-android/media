@@ -164,6 +164,12 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       new int[] {1920, 1600, 1440, 1280, 960, 854, 640, 540, 480};
 
   /**
+   * Smallest source long edge below which a single-format codec maximum size is not raised. See
+   * {@link #getCodecMaxValues(MediaCodecInfo, Format, Format[])}.
+   */
+  private static final int EXPAND_CODEC_MAX_SIZE_MIN_LONG_EDGE_PX = 1280;
+
+  /**
    * Scale factor for the initial maximum input size used to configure the codec in non-adaptive
    * playbacks. See {@link #getCodecMaxValues(MediaCodecInfo, Format, Format[])}.
    */
@@ -232,6 +238,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   private final PriorityQueue<Long> discardedDecoderInputBufferTimestamps;
   private final boolean enableMediaCodecBufferDecodeOnlyFlag;
   private final boolean enableDurationToProgressUs;
+  private final boolean expandCodecMaxSizeForSingleFormat;
   private final @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
 
   private @MonotonicNonNull CodecMaxValues codecMaxValues;
@@ -290,6 +297,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     private boolean enableMediaCodecBufferDecodeOnlyFlag;
     private boolean enableDurationToProgressUs;
     private long earlySchedulingThresholdUs;
+    private boolean expandCodecMaxSizeForSingleFormat;
     private @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
 
     /**
@@ -524,6 +532,23 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
 
     /**
+     * Sets whether the codec maximum size of a single-format stream is raised to the next standard
+     * resolution the codec supports.
+     *
+     * <p>Sources that expose exactly one {@link Format}, such as live transport streams, otherwise
+     * configure the codec for exactly that resolution, so switching to a higher resolution source
+     * discards the codec instance. Raising the ceiling keeps the instance for switches within it,
+     * at the cost of a decoder configured and allocated for the larger size. The default value is
+     * {@code false}.
+     */
+    @CanIgnoreReturnValue
+    public Builder setExpandCodecMaxSizeForSingleFormat(
+        boolean expandCodecMaxSizeForSingleFormat) {
+      this.expandCodecMaxSizeForSingleFormat = expandCodecMaxSizeForSingleFormat;
+      return this;
+    }
+
+    /**
      * Builds the {@link MediaCodecVideoRenderer}. Must only be called once per Builder instance.
      *
      * <p>Throws {@link IllegalStateException} if the {@link #setEventHandler event handler} and the
@@ -728,6 +753,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     enableMediaCodecBufferDecodeOnlyFlag = builder.enableMediaCodecBufferDecodeOnlyFlag;
     enableDurationToProgressUs = builder.enableDurationToProgressUs;
+    expandCodecMaxSizeForSingleFormat = builder.expandCodecMaxSizeForSingleFormat;
     dolbyVisionOutputPolicy = builder.dolbyVisionOutputPolicy;
     nextOutputBufferToProcessPresentationTimeUs = C.TIME_UNSET;
     scrubbingModeParameters = null;
@@ -2958,6 +2984,29 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
               (int) (maxInputSize * INITIAL_FORMAT_MAX_INPUT_SIZE_SCALE_FACTOR);
           // Avoid exceeding the maximum expected for the codec.
           maxInputSize = min(scaledMaxInputSize, codecMaxInputSize);
+        }
+      }
+      // Preparing for a larger maximum resolution also makes the codec allocate output buffers for
+      // it, so this is only worth doing when the codec can actually adapt between formats and the
+      // source is already large enough that the extra buffers are not a significant cost. Leaving
+      // SD sources alone keeps them from reserving 1080p buffers for nothing.
+      boolean expandMaxSize = expandCodecMaxSizeForSingleFormat
+          && codecInfo.adaptive
+          && max(format.width, format.height) >= EXPAND_CODEC_MAX_SIZE_MIN_LONG_EDGE_PX;
+      if (expandMaxSize) {
+        // Live streams carry one Format for the whole source, so the codec would otherwise be
+        // configured for exactly this resolution and any source switch to a higher one would
+        // discard it. Configure for the smallest standard size above the current one instead, so
+        // format changes within that ceiling can keep the codec instance.
+        @Nullable Point codecMaxSize = getCodecMaxSize(codecInfo, format);
+        if (codecMaxSize != null) {
+          maxWidth = max(maxWidth, codecMaxSize.x);
+          maxHeight = max(maxHeight, codecMaxSize.y);
+          maxInputSize =
+              max(
+                  maxInputSize,
+                  getCodecMaxInputSize(
+                      codecInfo, format.buildUpon().setWidth(maxWidth).setHeight(maxHeight).build()));
         }
       }
       return new CodecMaxValues(maxWidth, maxHeight, maxInputSize);
